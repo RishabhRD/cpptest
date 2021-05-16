@@ -1,6 +1,8 @@
 #pragma once
+#include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <source_location>
 #include <string>
 #include <tuple>
@@ -13,7 +15,7 @@ struct test_state {
   unsigned int _assertion_passed = 0;
   unsigned int _assertion_skipped = 0;
   unsigned int _unhandled_exceptions = 0;
-  std::string_view name;
+  std::string name;
 
   test_state(test_state &&state) = default;
   test_state &operator=(const test_state &state) = default;
@@ -50,6 +52,45 @@ private:
 
 template <bool b, std::enable_if_t<b>> void test_assert() {}
 
+std::string get_line_content(const char *file_name, int line) {
+  std::ifstream file(file_name);
+  if (file.is_open()) {
+    file.seekg(std::ios::beg);
+    for (int i = 0; i < line - 1; ++i) {
+      file.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+    std::string line;
+    std::getline(file, line);
+    return line;
+  } else {
+    return "";
+  }
+}
+
+void log_error(std::string_view message, const std::source_location &where) {
+  test_suite_state &state = test_suite_state::instance();
+  state.os << "\n\n\n"
+           << message << ':' << '\n'
+           << "Test Case: " << state._test_state.name << '\n'
+           << where.file_name() << "(" << where.line() << ":" << where.column()
+           << ") `" << '\n';
+  std::string line = get_line_content(where.file_name(), where.line());
+  if (!line.empty()) {
+    state.os << "---> " << get_line_content(where.file_name(), where.line())
+             << '\n';
+  }
+}
+
+/* template <typename T, typename U> */
+/* void log_error(std::string_view message, T&& expected, U&& actual, const
+ * std::source_location &where){ */
+/*   std::cout << "\n\n\n" */
+/*             << message << '\n' */
+/*             << where.file_name() << "(" << where.line() << ":" <<
+ * where.column() */
+/*             << ") `" << '\n' */
+/* } */
+
 void _update_test_state(const bool expr, const std::source_location &where =
                                              std::source_location::current()) {
   auto &state = test_suite_state::instance();
@@ -57,16 +98,18 @@ void _update_test_state(const bool expr, const std::source_location &where =
     if (!expr) {
       state._assertion_failed++;
       state._test_state._assertion_failed++;
-      // TODO: logging
+      log_error("Assertion Failed", where);
     } else {
       state._assertion_passed++;
       state._test_state._assertion_passed++;
     }
     return;
   } catch (const std::exception &ex) {
-    // TODO: logging
+    std::string msg = "Uncaught Exception with message ";
+    msg += ex.what();
+    log_error(msg, where);
   } catch (...) {
-    // TODO: logging
+    log_error("Uncaught Exception", where);
   }
   state._assertion_failed++;
   state._test_state._assertion_failed++;
@@ -121,7 +164,7 @@ void require_throws(
   }
   state._assertion_failed++;
   state._test_state._assertion_failed++;
-  // TODO: log here
+  log_error("Required Throws", where);
 }
 
 void require_no_throws(
@@ -137,7 +180,7 @@ void require_no_throws(
   }
   state._assertion_failed++;
   state._test_state._assertion_failed++;
-  // TODO: log here
+  log_error("Required NoThrow", where);
 }
 
 template <typename ExceptionType>
@@ -155,7 +198,7 @@ void require_throws_with(
   }
   state._assertion_failed++;
   state._test_state._assertion_failed++;
-  // TODO: log here
+  log_error("Didn't throw required exception", where);
 }
 
 struct _test {
@@ -169,6 +212,7 @@ struct _test {
   _test(const std::string &test_name, Func &&func, std::ostream &os = std::cout)
       : os(os), func(std::forward<Func>(func)),
         state(test_suite_state::instance(os)), name(test_name) {
+    _test_state.name = name;
     state._total_tests++;
   }
 
@@ -176,6 +220,7 @@ struct _test {
   _test(std::string &&test_name, Func &&func, std::ostream &os = std::cout)
       : os(os), func(std::forward<Func>(func)),
         state(test_suite_state::instance(os)), name(std::move(test_name)) {
+    _test_state.name = name;
     state._total_tests++;
   }
 
@@ -211,7 +256,16 @@ private:
   test_suite_state &state = test_suite_state::instance();
   std::vector<_test> tests;
 
-  void print_test_results() {}
+  void print_test_results() {
+    state.os << "\n\n";
+    state.os << "Total tests : " << state._total_tests << "\n";
+    state.os << "Total Assertions : " << state._total_assertions << "\n";
+    state.os << "Assertions Passed: " << state._assertion_passed << "\n";
+    state.os << "Assertions Failed: " << state._assertion_failed << "\n";
+    state.os << "Assertions Skipped: " << state._assertion_skipped << "\n";
+    state.os << "Total Unhanded Exceptions: " << state._unhandled_exceptions
+             << "\n";
+  }
 };
 
 template <std::invocable Func>
