@@ -15,6 +15,7 @@ struct test_state {
   unsigned int _assertion_passed = 0;
   unsigned int _assertion_skipped = 0;
   unsigned int _unhandled_exceptions = 0;
+  bool _to_break = false;
   std::string name;
 
   test_state(test_state &&state) = default;
@@ -67,7 +68,8 @@ std::string get_line_content(const char *file_name, int line) {
   }
 }
 
-void log_error(std::string_view message, const std::source_location &where) {
+void log_error(const std::string_view message,
+               const std::source_location &where) {
   test_suite_state &state = test_suite_state::instance();
   state.os << "\n\n\n"
            << message << ':' << '\n'
@@ -81,23 +83,48 @@ void log_error(std::string_view message, const std::source_location &where) {
   }
 }
 
-/* template <typename T, typename U> */
-/* void log_error(std::string_view message, T&& expected, U&& actual, const
- * std::source_location &where){ */
-/*   std::cout << "\n\n\n" */
-/*             << message << '\n' */
-/*             << where.file_name() << "(" << where.line() << ":" <<
- * where.column() */
-/*             << ") `" << '\n' */
-/* } */
+template <class T> concept Printable = requires(std::ostream &os, T a) {
+  {os << a} -> std::same_as<std::ostream&>;
+};
 
-void _update_test_state(const bool expr, const std::source_location &where =
-                                             std::source_location::current()) {
+template <Printable Expected, Printable Actual>
+void log_error(const std::string_view message, Expected &&expected,
+               Actual &&actual, const std::source_location &where) {
+  test_suite_state &state = test_suite_state::instance();
+  state.os << "\n\n\n"
+           << message << ':' << '\n'
+           << "Test Case: " << state._test_state.name << '\n'
+           << "Expected: " << expected << '\n'
+           << "Actual: " << actual << '\n'
+           << where.file_name() << "(" << where.line() << ":" << where.column()
+           << ") `" << '\n';
+  std::string line = get_line_content(where.file_name(), where.line());
+  if (!line.empty()) {
+    state.os << "---> " << get_line_content(where.file_name(), where.line())
+             << '\n';
+  }
+}
+
+template <typename Expected, typename Actual>
+void log(const std::string_view message, Expected &&exptected, Actual &&actual,
+         const std::source_location &where) {
+  if constexpr (Printable<Expected> && Printable<Actual>) {
+    log_error(message, exptected, actual, where);
+  } else {
+    log_error(message, where);
+  }
+}
+
+void _update_test_state(const bool expr, bool to_break,
+                        const std::source_location &where) {
   auto &state = test_suite_state::instance();
   try {
     if (!expr) {
       state._assertion_failed++;
       state._test_state._assertion_failed++;
+      if (to_break) {
+        state._test_state._to_break = true;
+      }
       log_error("Assertion Failed", where);
     } else {
       state._assertion_passed++;
@@ -111,6 +138,9 @@ void _update_test_state(const bool expr, const std::source_location &where =
   } catch (...) {
     log_error("Uncaught Exception", where);
   }
+  if (to_break) {
+    state._test_state._to_break = true;
+  }
   state._assertion_failed++;
   state._test_state._assertion_failed++;
   state._unhandled_exceptions++;
@@ -122,13 +152,12 @@ void require(const bool expr, const std::source_location &where =
   auto &state = test_suite_state::instance();
   state._total_assertions++;
   state._test_state._total_assertions++;
-  if (state._test_state._assertion_failed > 0 ||
-      state._test_state._unhandled_exceptions > 0) {
+  if (state._test_state._to_break) {
     state._assertion_skipped++;
     state._test_state._assertion_skipped++;
     return; // Don't test more if the prev condition was failed
   }
-  _update_test_state(expr, where);
+  _update_test_state(expr, true, where);
 }
 
 void check(const bool expr, const std::source_location &where =
@@ -136,18 +165,16 @@ void check(const bool expr, const std::source_location &where =
   auto &state = test_suite_state::instance();
   state._total_assertions++;
   state._test_state._total_assertions++;
-  _update_test_state(expr, where);
+  _update_test_state(expr, false, where);
 }
 
 void require_false(const bool expr, const std::source_location &where =
                                         std::source_location::current()) {
-  auto &state = test_suite_state::instance();
   require(!expr, where);
 }
 
 void check_false(const bool expr, const std::source_location &where =
                                       std::source_location::current()) {
-  auto &state = test_suite_state::instance();
   check(!expr, where);
 }
 
@@ -199,6 +226,134 @@ void require_throws_with(
   state._assertion_failed++;
   state._test_state._assertion_failed++;
   log_error("Didn't throw required exception", where);
+}
+
+template <typename T, typename U> concept EqualComparable = requires(T t, U u) {
+  { t == u }
+  ->std::same_as<bool>;
+};
+
+template <typename T, typename U>
+concept InequalComparable = requires(T t, U u) {
+  { t != u }
+  ->std::same_as<bool>;
+};
+template <typename Expected, typename Actual>
+requires(EqualComparable<Expected, Actual>) void _assert_equals(
+    Expected &&expected, Actual &&actual, const bool to_break,
+    const std::source_location &where) {
+  auto &state = test_suite_state::instance();
+  try {
+    if (!(expected == actual)) {
+      state._assertion_failed++;
+      state._test_state._assertion_failed++;
+      if (to_break) {
+        state._test_state._to_break = true;
+      }
+      log("Equality Assertion Failed", expected, actual, where);
+    } else {
+      state._assertion_passed++;
+      state._test_state._assertion_passed++;
+    }
+    return;
+  } catch (const std::exception &ex) {
+    std::string msg = "Uncaught Exception with message ";
+    msg += ex.what();
+    log(msg, expected, actual, where);
+  } catch (...) {
+    log("Uncaught Exception", expected, actual, where);
+  }
+  if (to_break) {
+    state._test_state._to_break = true;
+  }
+  state._assertion_failed++;
+  state._test_state._assertion_failed++;
+  state._unhandled_exceptions++;
+  state._test_state._unhandled_exceptions++;
+}
+
+template <typename Expected, typename Actual>
+requires(InequalComparable<Expected, Actual>) void _assert_not_equals(
+    Expected &&expected, Actual &&actual, bool to_break,
+    const std::source_location &where) {
+  auto &state = test_suite_state::instance();
+  try {
+    if (!(expected != actual)) {
+      state._assertion_failed++;
+      state._test_state._assertion_failed++;
+      if (to_break) {
+        state._test_state._to_break = true;
+      }
+      log("Inequality Assertion Failed", expected, actual, where);
+    } else {
+      state._assertion_passed++;
+      state._test_state._assertion_passed++;
+    }
+    return;
+  } catch (const std::exception &ex) {
+    std::string msg = "Uncaught Exception with message ";
+    msg += ex.what();
+    log(msg, expected, actual, where);
+  } catch (...) {
+    log("Uncaught Exception", expected, actual, where);
+  }
+  if (to_break) {
+    state._test_state._to_break = true;
+  }
+  state._assertion_failed++;
+  state._test_state._assertion_failed++;
+  state._unhandled_exceptions++;
+  state._test_state._unhandled_exceptions++;
+}
+
+template <typename T, typename U>
+requires(EqualComparable<T, U>) void require_equals(
+    T &&expected, U &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  auto &state = test_suite_state::instance();
+  state._total_assertions++;
+  state._test_state._total_assertions++;
+  if (state._test_state._to_break) {
+    state._assertion_skipped++;
+    state._test_state._assertion_skipped++;
+    return; // Don't test more if the prev condition was failed
+  }
+  _assert_equals(expected, actual, true, where);
+}
+
+template <typename T, typename U>
+requires(EqualComparable<T, U>) void check_equals(
+    T &&expected, U &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  auto &state = test_suite_state::instance();
+  state._total_assertions++;
+  state._test_state._total_assertions++;
+  _assert_equals(expected, actual, false, where);
+}
+
+template <typename T, typename U>
+requires(InequalComparable<T, U>) void require_not_equals(
+    T &&expected, U &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  auto &state = test_suite_state::instance();
+  state._total_assertions++;
+  state._test_state._total_assertions++;
+  if (state._test_state._to_break) {
+    state._assertion_skipped++;
+    state._test_state._assertion_skipped++;
+    return; // Don't test more if the prev condition was failed
+  }
+  _assert_not_equals(expected, actual, true, where);
+}
+
+template <typename T, typename U>
+requires(EqualComparable<T, U>) void check_not_equals(
+    T &&expected, U &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  auto &state = test_suite_state::instance();
+  state._total_assertions++;
+  state._test_state._total_assertions++;
+  _assert_not_equals(expected, actual, false, where);
 }
 
 struct _test {
