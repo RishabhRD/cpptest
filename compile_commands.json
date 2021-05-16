@@ -1,0 +1,19 @@
+[
+ {
+  "directory": "/home/rishabh/git/cpptest",
+  "arguments": [
+   "g++",
+   "-I/home/rishabh/git/cpptest",
+   "-I/home/rishabh/git/cpptest",
+   "-DCPPTEST_SHARED",
+   "-std=c++2a",
+   "-o",
+   "tests/basics/driver.o",
+   "-c",
+   "-x",
+   "c++",
+   "/home/rishabh/git/cpptest/tests/basics/driver.cxx"
+  ],
+  "file": "/home/rishabh/git/cpptest/tests/basics/driver.cxx"
+ }
+]

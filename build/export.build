@@ -1,0 +1,6 @@
+$out_root/
+{
+  include cpptest/
+}
+
+export $out_root/cpptest/$import.target
