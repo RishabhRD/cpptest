@@ -214,34 +214,37 @@ private:
   void print_test_results() {}
 };
 
-struct test_case {
-  template <std::invocable Func>
-  explicit test_case(const std::string& desc, Func &&func,
-            std::ostream &os = std::cout) {
-    auto current_test_case = _test(desc, std::forward<Func>(func), os);
-    test_set::instance().add_test(std::move(current_test_case));
-  }
+template <std::invocable Func>
+void test_case(const std::string &desc, Func &&func,
+               std::ostream &os = std::cout) {
+  auto current_test_case = _test(desc, std::forward<Func>(func), os);
+  test_set::instance().add_test(std::move(current_test_case));
+}
 
-  template <std::invocable Func>
-  explicit test_case(std::string &&desc, Func &&func, std::ostream &os = std::cout) {
-    auto current_test_case = _test(std::move(desc), std::forward<Func>(func), os);
-    test_set::instance().add_test(std::move(current_test_case));
-  }
-  /* template <typename Func> */
-  /* test_case(Func&& func) = delete; */
+template <std::invocable Func>
+void test_case(std::string &&desc, Func &&func, std::ostream &os = std::cout) {
+  auto current_test_case = _test(std::move(desc), std::forward<Func>(func), os);
+  test_set::instance().add_test(std::move(current_test_case));
+}
 
-  /* template <typename Func> */
-  /* test_case& operator=(Func&& func) = delete; */
+template <std::invocable Func> struct _test_suite {
+
+  _test_suite(Func &&func) : func(std::move(func)) {}
+  _test_suite(const Func &func) : func(func) {}
+
+  void operator()() { func(); }
+
+private:
+  Func func;
 };
 
-int main(int argc, char **argv) {
-  test_set::instance().run_all_tests();
-  return 0;
-}
+struct test_suite {
+  template <std::invocable Func> test_suite(Func &&func) {
+    auto suite = _test_suite(std::forward<Func>(func));
+    suite();
+  }
+};
 
-int main() {
-  test_set::instance().run_all_tests();
-  return 0;
-}
+void run() { test_set::instance().run_all_tests(); }
 
 } // namespace cpptest

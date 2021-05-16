@@ -1,13 +1,16 @@
-#include <iostream>
 #include <cassert>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
-#include <cpptest/version.hxx>
 #include <cpptest/cpptest.hxx>
+#include <cpptest/version.hxx>
 
-auto x = cpptest::test_case("Hello", [](){});
+using namespace cpptest;
 
-int main(int argc, char** argv){
-  cpptest::main(argc, argv);
-}
+auto primary_tests = test_suite([] {
+  test_case("Obvious truth", []() { require(1 < 2); });
+  test_case("Obvious lie", []() { require(2 < 1); });
+});
+
+int main(int argc, char **argv) { cpptest::run(); }
