@@ -83,21 +83,6 @@ private:
   test_suite_state(std::ostream &os) : os(os) {}
 };
 
-inline std::string get_line_content(const char *file_name, int line) {
-  std::ifstream file(file_name);
-  if (file.is_open()) {
-    file.seekg(std::ios::beg);
-    for (int i = 0; i < line - 1; ++i) {
-      file.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    }
-    std::string line;
-    std::getline(file, line);
-    return line;
-  } else {
-    return "";
-  }
-}
-
 namespace logging {
 
 inline void log_error(const std::string_view message,
@@ -108,11 +93,6 @@ inline void log_error(const std::string_view message,
            << "Test Case: " << state._test_state.name << '\n'
            << where.file_name() << "(" << where.line() << ":" << where.column()
            << ") `" << '\n';
-  std::string line = get_line_content(where.file_name(), where.line());
-  if (!line.empty()) {
-    state.os << "---> " << get_line_content(where.file_name(), where.line())
-             << '\n';
-  }
 }
 
 template <Printable Expected, Printable Actual>
@@ -122,15 +102,10 @@ void log_error(const std::string_view message, Expected &&expected,
   state.os << "\n\n\n"
            << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << "Expected: " << expected << '\n'
-           << "Actual: " << actual << '\n'
            << where.file_name() << "(" << where.line() << ":" << where.column()
-           << ") `" << '\n';
-  std::string line = get_line_content(where.file_name(), where.line());
-  if (!line.empty()) {
-    state.os << "---> " << get_line_content(where.file_name(), where.line())
-             << '\n';
-  }
+           << ") `" << '\n'
+           << "Expected: " << expected << '\n'
+           << "Actual: " << actual << '\n';
 }
 
 template <typename Expected, typename Actual>
@@ -146,27 +121,15 @@ void log(const std::string_view message, Expected &&exptected, Actual &&actual,
 
 namespace assertions {
 
-template <typename... Args, typename Lambda>
-requires std::invocable<Lambda, const bool, Args...,
-                        const std::source_location &> inline constexpr auto
-make_assert(const bool to_break, Lambda &&lambda) {
-  return [to_break, lambda = std::forward<Lambda>(lambda)](
-             Args &&...args, const std::source_location &where =
-                                 std::source_location::current()) {
-    auto &state = test_suite_state::instance();
-    state.assertion_added();
-    if (to_break) {
-      if (state.to_break()) {
-        return;
-      }
-    }
-    lambda(to_break, std::forward<Args>(args)..., where);
-  };
-}
-
 inline void _assert(const bool to_break, const bool expr,
                     const std::source_location &where) {
   auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
   try {
     if (!expr) {
       state.assertion_failed(to_break);
@@ -193,6 +156,12 @@ inline void _assert_false(const bool to_break, const bool expr,
 inline void assert_throws(const bool to_break, const std::invocable auto lambda,
                           const std::source_location &where) {
   auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
   try {
     lambda();
   } catch (...) {
@@ -207,6 +176,12 @@ inline void assert_no_throws(const bool to_break,
                              const std::invocable auto lambda,
                              const std::source_location &where) {
   auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
   try {
     lambda();
     state.assertion_passed();
@@ -222,6 +197,12 @@ void assert_throws_with(
     const bool to_break, std::invocable auto &&lambda,
     const std::source_location &where = std::source_location::current()) {
   auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
   try {
     lambda();
   } catch (ExceptionType &&ex) {
@@ -235,9 +216,15 @@ void assert_throws_with(
 
 template <typename Expected, typename Actual>
 requires(EqualComparable<Expected, Actual>) inline void assert_equals(
-    const bool to_break, Expected&& expected, Actual&& actual,
+    const bool to_break, Expected &&expected, Actual &&actual,
     const std::source_location &where) {
   auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
   try {
     if (!(expected == actual)) {
       state.assertion_failed(to_break);
@@ -261,6 +248,12 @@ requires(InequalComparable<Expected, Actual>) inline void assert_not_equals(
     bool to_break, Expected &&expected, Actual &&actual,
     const std::source_location &where) {
   auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
   try {
     if (!(expected != actual)) {
       state.assertion_failed(to_break);
@@ -279,54 +272,100 @@ requires(InequalComparable<Expected, Actual>) inline void assert_not_equals(
   state.assertion_failed(to_break, true);
 }
 
-inline constexpr auto require = make_assert<const bool>(true, _assert);
+inline void
+require(const bool expr,
+        const std::source_location &where = std::source_location::current()) {
+  _assert(true, expr, where);
+}
 
-inline constexpr auto check = make_assert<const bool>(false, _assert);
+inline void
+check(const bool expr,
+      const std::source_location &where = std::source_location::current()) {
+  _assert(false, expr, where);
+}
 
-inline constexpr auto require_false =
-    make_assert<const bool>(true, _assert_false);
+inline void require_false(
+    const bool expr,
+    const std::source_location &where = std::source_location::current()) {
+  _assert_false(true, expr, where);
+}
 
-inline constexpr auto check_false =
-    make_assert<const bool>(false, _assert_false);
+inline void check_false(const bool expr, const std::source_location &where =
+                                             std::source_location::current()) {
+  _assert_false(false, expr, where);
+}
 
 template <std::invocable Lambda>
-inline constexpr auto require_throws = make_assert<Lambda>(true,
-                                                              assert_throws<Lambda>);
-template <std::invocable Lambda>
-inline constexpr auto check_throws = make_assert<Lambda>(false,
-                                                            assert_throws<Lambda>);
+inline void require_throws(
+    Lambda &&lambda,
+    const std::source_location &where = std::source_location::current()) {
+  assert_throws(true, std::forward<Lambda>(lambda), where);
+}
 
 template <std::invocable Lambda>
-inline constexpr auto
-    require_no_throws = make_assert<Lambda>(true, assert_no_throws<Lambda>);
+inline void check_throws(Lambda &&lambda, const std::source_location &where =
+                                              std::source_location::current()) {
+  assert_throws(false, std::forward<Lambda>(lambda), where);
+}
 
 template <std::invocable Lambda>
-inline constexpr auto
-    check_no_throws = make_assert<Lambda>(false, assert_no_throws<Lambda>);
+inline void require_no_throws(
+    Lambda &&lambda,
+    const std::source_location &where = std::source_location::current()) {
+  assert_no_throws(true, std::forward<Lambda>(lambda), where);
+}
+
+template <std::invocable Lambda>
+inline void check_no_throws(
+    Lambda &&lambda,
+    const std::source_location &where = std::source_location::current()) {
+  assert_no_throws(false, std::forward<Lambda>(lambda), where);
+}
 
 template <typename ExceptionType, std::invocable Lambda>
-inline constexpr auto
-    require_throws_with = make_assert<Lambda>(true, assert_throws_with<Lambda>);
+inline void require_throws_with(
+    Lambda &&lambda,
+    const std::source_location &where = std::source_location::current()) {
+  assert_throws_with(true, std::forward<Lambda>(lambda), where);
+}
 
 template <typename ExceptionType, std::invocable Lambda>
-inline constexpr auto
-    check_throws_with = make_assert<Lambda>(false, assert_throws_with<Lambda>);
+inline void check_throws_with(
+    Lambda &&lambda,
+    const std::source_location &where = std::source_location::current()) {
+  assert_throws_with(false, std::forward<Lambda>(lambda), where);
+}
 
 template <typename Expected, typename Actual>
-inline constexpr auto
-    require_equals = make_assert<Expected, Actual>(true, assert_equals<Expected, Actual>);
+inline void require_equals(
+    Expected &&expected, Actual &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  assert_equals(true, std::forward<Expected>(expected),
+                std::forward<Actual>(actual), where);
+}
 
 template <typename Expected, typename Actual>
-inline constexpr auto
-    check_equals = make_assert<Expected, Actual>(false, assert_equals<Expected, Actual>);
+inline void check_equals(
+    Expected &&expected, Actual &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  assert_equals(false, std::forward<Expected>(expected),
+                std::forward<Actual>(actual), where);
+}
 
 template <typename Expected, typename Actual>
-inline constexpr auto require_not_equals =
-    make_assert<Expected, Actual>(true, assert_not_equals<Expected, Actual>);
-
+inline auto require_not_equals(
+    Expected &&expected, Actual &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  assert_not_equals(true, std::forward<Expected>(expected),
+                    std::forward<Actual>(actual), where);
+}
 template <typename Expected, typename Actual>
-inline constexpr auto check_not_equals =
-    make_assert<Expected, Actual>(false, assert_not_equals<Expected, Actual>);
+inline auto check_not_equals(
+    Expected &&expected, Actual &&actual,
+    const std::source_location &where = std::source_location::current()) {
+  assert_not_equals(false, std::forward<Expected>(expected),
+                    std::forward<Actual>(actual), where);
+}
 }; // namespace assertions
 
 struct _test {

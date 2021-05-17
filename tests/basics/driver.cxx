@@ -18,9 +18,9 @@ auto primary_tests = test_suite([] {
 
 auto equal_tests = test_suite([] {
   test_case("Equality Obvious truth", []() {
+    require_not_equals(1, 2);
     require_equals(1, 2);
-    /* require_equals(1, 2); */
-    /* require_no_throws(exp(throw "helo";)); */
+    require_no_throws(exp(throw "helo";));
   });
 });
 
