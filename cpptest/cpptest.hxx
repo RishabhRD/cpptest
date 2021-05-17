@@ -1,5 +1,4 @@
 #pragma once
-#include <bits/c++config.h>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -147,14 +146,9 @@ void log(const std::string_view message, Expected &&exptected, Actual &&actual,
 
 namespace assertions {
 
-template <typename Lambda> struct make_assert_helper {
-  void operator()(const bool to_break, const std::source_location &where,
-                  const Lambda &lambda) {}
-};
-
 template <typename... Args, typename Lambda>
 requires std::invocable<Lambda, const bool, Args...,
-                        const std::source_location &> inline consteval auto
+                        const std::source_location &> inline constexpr auto
 make_assert(const bool to_break, Lambda &&lambda) {
   return [to_break, lambda = std::forward<Lambda>(lambda)](
              Args &&...args, const std::source_location &where =
@@ -241,7 +235,7 @@ void assert_throws_with(
 
 template <typename Expected, typename Actual>
 requires(EqualComparable<Expected, Actual>) inline void assert_equals(
-    const bool to_break, Expected &&expected, Actual &&actual,
+    const bool to_break, Expected&& expected, Actual&& actual,
     const std::source_location &where) {
   auto &state = test_suite_state::instance();
   try {
@@ -255,7 +249,7 @@ requires(EqualComparable<Expected, Actual>) inline void assert_equals(
   } catch (const std::exception &ex) {
     std::string msg = "Uncaught Exception with message ";
     msg += ex.what();
-    log(msg, expected, actual, where);
+    logging::log(msg, expected, actual, where);
   } catch (...) {
     logging::log("Uncaught Exception", expected, actual, where);
   }
@@ -270,7 +264,7 @@ requires(InequalComparable<Expected, Actual>) inline void assert_not_equals(
   try {
     if (!(expected != actual)) {
       state.assertion_failed(to_break);
-      log("Inequality Assertion Failed", expected, actual, where);
+      logging::log("Inequality Assertion Failed", expected, actual, where);
     } else {
       state.assertion_passed();
     }
@@ -296,43 +290,43 @@ inline constexpr auto check_false =
     make_assert<const bool>(false, _assert_false);
 
 template <std::invocable Lambda>
-inline constexpr auto require_throws = make_assert<Lambda &&>(true,
-                                                              assert_throws);
+inline constexpr auto require_throws = make_assert<Lambda>(true,
+                                                              assert_throws<Lambda>);
 template <std::invocable Lambda>
-inline constexpr auto check_throws = make_assert<Lambda &&>(false,
-                                                            assert_throws);
+inline constexpr auto check_throws = make_assert<Lambda>(false,
+                                                            assert_throws<Lambda>);
 
 template <std::invocable Lambda>
 inline constexpr auto
-    require_no_throws = make_assert<Lambda &&>(true, assert_no_throws);
+    require_no_throws = make_assert<Lambda>(true, assert_no_throws<Lambda>);
 
 template <std::invocable Lambda>
 inline constexpr auto
-    check_no_throws = make_assert<Lambda &&>(false, assert_no_throws);
+    check_no_throws = make_assert<Lambda>(false, assert_no_throws<Lambda>);
 
 template <typename ExceptionType, std::invocable Lambda>
 inline constexpr auto
-    require_throws_with = make_assert<Lambda &&>(true, assert_throws_with);
+    require_throws_with = make_assert<Lambda>(true, assert_throws_with<Lambda>);
 
 template <typename ExceptionType, std::invocable Lambda>
 inline constexpr auto
-    check_throws_with = make_assert<Lambda &&>(false, assert_throws_with);
+    check_throws_with = make_assert<Lambda>(false, assert_throws_with<Lambda>);
 
 template <typename Expected, typename Actual>
 inline constexpr auto
-    require_equals = make_assert<Expected &&, Actual &&>(true, assert_equals);
+    require_equals = make_assert<Expected, Actual>(true, assert_equals<Expected, Actual>);
 
 template <typename Expected, typename Actual>
 inline constexpr auto
-    check_equals = make_assert<Expected &&, Actual &&>(false, assert_equals);
+    check_equals = make_assert<Expected, Actual>(false, assert_equals<Expected, Actual>);
 
 template <typename Expected, typename Actual>
 inline constexpr auto require_not_equals =
-    make_assert<Expected &&, Actual &&>(true, assert_not_equals);
+    make_assert<Expected, Actual>(true, assert_not_equals<Expected, Actual>);
 
 template <typename Expected, typename Actual>
 inline constexpr auto check_not_equals =
-    make_assert<Expected &&, Actual &&>(false, assert_not_equals);
+    make_assert<Expected, Actual>(false, assert_not_equals<Expected, Actual>);
 }; // namespace assertions
 
 struct _test {
