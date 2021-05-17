@@ -1,4 +1,5 @@
 #pragma once
+#include <bits/c++config.h>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -9,13 +10,25 @@
 
 namespace cpptest {
 
+template <class T> concept Printable = requires(std::ostream &os, T a) {
+  { os << a }
+  ->std::same_as<std::ostream &>;
+};
+
+template <typename T, typename U> concept EqualComparable = requires(T t, U u) {
+  { t == u }
+  ->std::same_as<bool>;
+};
+
+template <typename T, typename U>
+concept InequalComparable = requires(T t, U u) {
+  { t != u }
+  ->std::same_as<bool>;
+};
+
 struct test_state {
-  unsigned int _total_assertions = 0;
-  unsigned int _assertion_failed = 0;
-  unsigned int _assertion_passed = 0;
-  unsigned int _assertion_skipped = 0;
-  unsigned int _unhandled_exceptions = 0;
   bool _to_break = false;
+  bool _already_failed = false;
   std::string name;
 
   test_state(test_state &&state) = default;
@@ -29,9 +42,9 @@ struct test_suite_state {
   std::ostream &os;
 
   unsigned int _total_tests = 0;
+  unsigned int _total_tests_failed = 0;
   unsigned int _total_assertions = 0;
   unsigned int _assertion_failed = 0;
-  unsigned int _assertion_skipped = 0;
   unsigned int _assertion_passed = 0;
   unsigned int _unhandled_exceptions = 0;
 
@@ -42,6 +55,26 @@ struct test_suite_state {
   test_suite_state &operator=(const test_suite_state &) = delete;
   test_suite_state &operator=(test_suite_state &&) = delete;
 
+  bool to_break() { return _test_state._to_break; }
+
+  void assertion_passed() { _assertion_passed++; }
+
+  void assertion_added() { _total_assertions++; }
+
+  void assertion_failed(bool to_break, bool exception = false) {
+    if (to_break) {
+      _test_state._to_break = true;
+    }
+    _assertion_failed++;
+    if (!_test_state._already_failed) {
+      _test_state._already_failed = true;
+      _total_tests_failed++;
+    }
+    if (exception) {
+      _unhandled_exceptions++;
+    }
+  }
+
   static test_suite_state &instance(std::ostream &os = std::cout) {
     static test_suite_state state(os);
     return state;
@@ -51,9 +84,7 @@ private:
   test_suite_state(std::ostream &os) : os(os) {}
 };
 
-template <bool b, std::enable_if_t<b>> void test_assert() {}
-
-std::string get_line_content(const char *file_name, int line) {
+inline std::string get_line_content(const char *file_name, int line) {
   std::ifstream file(file_name);
   if (file.is_open()) {
     file.seekg(std::ios::beg);
@@ -68,8 +99,10 @@ std::string get_line_content(const char *file_name, int line) {
   }
 }
 
-void log_error(const std::string_view message,
-               const std::source_location &where) {
+namespace logging {
+
+inline void log_error(const std::string_view message,
+                      const std::source_location &where) {
   test_suite_state &state = test_suite_state::instance();
   state.os << "\n\n\n"
            << message << ':' << '\n'
@@ -82,10 +115,6 @@ void log_error(const std::string_view message,
              << '\n';
   }
 }
-
-template <class T> concept Printable = requires(std::ostream &os, T a) {
-  {os << a} -> std::same_as<std::ostream&>;
-};
 
 template <Printable Expected, Printable Actual>
 void log_error(const std::string_view message, Expected &&expected,
@@ -114,146 +143,113 @@ void log(const std::string_view message, Expected &&exptected, Actual &&actual,
     log_error(message, where);
   }
 }
+}; // namespace logging
 
-void _update_test_state(const bool expr, bool to_break,
-                        const std::source_location &where) {
+namespace assertions {
+
+template <typename Lambda> struct make_assert_helper {
+  void operator()(const bool to_break, const std::source_location &where,
+                  const Lambda &lambda) {}
+};
+
+template <typename... Args, typename Lambda>
+requires std::invocable<Lambda, const bool, Args...,
+                        const std::source_location &> inline consteval auto
+make_assert(const bool to_break, Lambda &&lambda) {
+  return [to_break, lambda = std::forward<Lambda>(lambda)](
+             Args &&...args, const std::source_location &where =
+                                 std::source_location::current()) {
+    auto &state = test_suite_state::instance();
+    state.assertion_added();
+    if (to_break) {
+      if (state.to_break()) {
+        return;
+      }
+    }
+    lambda(to_break, std::forward<Args>(args)..., where);
+  };
+}
+
+inline void _assert(const bool to_break, const bool expr,
+                    const std::source_location &where) {
   auto &state = test_suite_state::instance();
   try {
     if (!expr) {
-      state._assertion_failed++;
-      state._test_state._assertion_failed++;
-      if (to_break) {
-        state._test_state._to_break = true;
-      }
-      log_error("Assertion Failed", where);
+      state.assertion_failed(to_break);
+      logging::log_error("Assertion Failed", where);
     } else {
-      state._assertion_passed++;
-      state._test_state._assertion_passed++;
+      state.assertion_passed();
     }
     return;
   } catch (const std::exception &ex) {
     std::string msg = "Uncaught Exception with message ";
     msg += ex.what();
-    log_error(msg, where);
+    logging::log_error(msg, where);
   } catch (...) {
-    log_error("Uncaught Exception", where);
+    logging::log_error("Uncaught Exception", where);
   }
-  if (to_break) {
-    state._test_state._to_break = true;
-  }
-  state._assertion_failed++;
-  state._test_state._assertion_failed++;
-  state._unhandled_exceptions++;
-  state._test_state._unhandled_exceptions++;
+  state.assertion_failed(to_break, true);
 }
 
-void require(const bool expr, const std::source_location &where =
-                                  std::source_location::current()) {
+inline void _assert_false(const bool to_break, const bool expr,
+                          const std::source_location &where) {
+  _assert(to_break, !expr, where);
+}
+
+inline void assert_throws(const bool to_break, const std::invocable auto lambda,
+                          const std::source_location &where) {
   auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
-  if (state._test_state._to_break) {
-    state._assertion_skipped++;
-    state._test_state._assertion_skipped++;
-    return; // Don't test more if the prev condition was failed
-  }
-  _update_test_state(expr, true, where);
-}
-
-void check(const bool expr, const std::source_location &where =
-                                std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
-  _update_test_state(expr, false, where);
-}
-
-void require_false(const bool expr, const std::source_location &where =
-                                        std::source_location::current()) {
-  require(!expr, where);
-}
-
-void check_false(const bool expr, const std::source_location &where =
-                                      std::source_location::current()) {
-  check(!expr, where);
-}
-
-void require_throws(
-    const std::invocable auto lambda,
-    const std::source_location &where = std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
   try {
     lambda();
   } catch (...) {
+    state.assertion_passed();
     return;
   }
-  state._assertion_failed++;
-  state._test_state._assertion_failed++;
-  log_error("Required Throws", where);
+  state.assertion_failed(to_break);
+  logging::log_error("Required Throws", where);
 }
 
-void require_no_throws(
-    const std::invocable auto lambda,
-    const std::source_location &where = std::source_location::current()) {
+inline void assert_no_throws(const bool to_break,
+                             const std::invocable auto lambda,
+                             const std::source_location &where) {
   auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
   try {
     lambda();
+    state.assertion_passed();
     return;
   } catch (...) {
   }
-  state._assertion_failed++;
-  state._test_state._assertion_failed++;
-  log_error("Required NoThrow", where);
+  state.assertion_failed(to_break);
+  logging::log_error("Required NoThrow", where);
 }
 
 template <typename ExceptionType>
-void require_throws_with(
-    std::invocable auto lambda,
+void assert_throws_with(
+    const bool to_break, std::invocable auto &&lambda,
     const std::source_location &where = std::source_location::current()) {
   auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
   try {
     lambda();
   } catch (ExceptionType &&ex) {
     return;
+    state.assertion_passed();
   } catch (...) {
   }
-  state._assertion_failed++;
-  state._test_state._assertion_failed++;
-  log_error("Didn't throw required exception", where);
+  state.assertion_failed(to_break);
+  logging::log_error("Didn't throw required exception", where);
 }
 
-template <typename T, typename U> concept EqualComparable = requires(T t, U u) {
-  { t == u }
-  ->std::same_as<bool>;
-};
-
-template <typename T, typename U>
-concept InequalComparable = requires(T t, U u) {
-  { t != u }
-  ->std::same_as<bool>;
-};
 template <typename Expected, typename Actual>
-requires(EqualComparable<Expected, Actual>) void _assert_equals(
-    Expected &&expected, Actual &&actual, const bool to_break,
+requires(EqualComparable<Expected, Actual>) inline void assert_equals(
+    const bool to_break, Expected &&expected, Actual &&actual,
     const std::source_location &where) {
   auto &state = test_suite_state::instance();
   try {
     if (!(expected == actual)) {
-      state._assertion_failed++;
-      state._test_state._assertion_failed++;
-      if (to_break) {
-        state._test_state._to_break = true;
-      }
-      log("Equality Assertion Failed", expected, actual, where);
+      state.assertion_failed(to_break);
+      logging::log("Equality Assertion Failed", expected, actual, where);
     } else {
-      state._assertion_passed++;
-      state._test_state._assertion_passed++;
+      state.assertion_passed();
     }
     return;
   } catch (const std::exception &ex) {
@@ -261,100 +257,167 @@ requires(EqualComparable<Expected, Actual>) void _assert_equals(
     msg += ex.what();
     log(msg, expected, actual, where);
   } catch (...) {
-    log("Uncaught Exception", expected, actual, where);
+    logging::log("Uncaught Exception", expected, actual, where);
   }
-  if (to_break) {
-    state._test_state._to_break = true;
-  }
-  state._assertion_failed++;
-  state._test_state._assertion_failed++;
-  state._unhandled_exceptions++;
-  state._test_state._unhandled_exceptions++;
+  state.assertion_failed(to_break, true);
 }
 
 template <typename Expected, typename Actual>
-requires(InequalComparable<Expected, Actual>) void _assert_not_equals(
-    Expected &&expected, Actual &&actual, bool to_break,
+requires(InequalComparable<Expected, Actual>) inline void assert_not_equals(
+    bool to_break, Expected &&expected, Actual &&actual,
     const std::source_location &where) {
   auto &state = test_suite_state::instance();
   try {
     if (!(expected != actual)) {
-      state._assertion_failed++;
-      state._test_state._assertion_failed++;
-      if (to_break) {
-        state._test_state._to_break = true;
-      }
+      state.assertion_failed(to_break);
       log("Inequality Assertion Failed", expected, actual, where);
     } else {
-      state._assertion_passed++;
-      state._test_state._assertion_passed++;
+      state.assertion_passed();
     }
     return;
   } catch (const std::exception &ex) {
     std::string msg = "Uncaught Exception with message ";
     msg += ex.what();
-    log(msg, expected, actual, where);
+    logging::log(msg, expected, actual, where);
   } catch (...) {
-    log("Uncaught Exception", expected, actual, where);
+    logging::log("Uncaught Exception", expected, actual, where);
   }
-  if (to_break) {
-    state._test_state._to_break = true;
-  }
-  state._assertion_failed++;
-  state._test_state._assertion_failed++;
-  state._unhandled_exceptions++;
-  state._test_state._unhandled_exceptions++;
+  state.assertion_failed(to_break, true);
 }
 
-template <typename T, typename U>
-requires(EqualComparable<T, U>) void require_equals(
-    T &&expected, U &&actual,
-    const std::source_location &where = std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
-  if (state._test_state._to_break) {
-    state._assertion_skipped++;
-    state._test_state._assertion_skipped++;
-    return; // Don't test more if the prev condition was failed
-  }
-  _assert_equals(expected, actual, true, where);
-}
+inline constexpr auto require = make_assert<const bool>(true, _assert);
 
-template <typename T, typename U>
-requires(EqualComparable<T, U>) void check_equals(
-    T &&expected, U &&actual,
-    const std::source_location &where = std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
-  _assert_equals(expected, actual, false, where);
-}
+inline constexpr auto check = make_assert<const bool>(false, _assert);
 
-template <typename T, typename U>
-requires(InequalComparable<T, U>) void require_not_equals(
-    T &&expected, U &&actual,
-    const std::source_location &where = std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
-  if (state._test_state._to_break) {
-    state._assertion_skipped++;
-    state._test_state._assertion_skipped++;
-    return; // Don't test more if the prev condition was failed
-  }
-  _assert_not_equals(expected, actual, true, where);
-}
+inline constexpr auto require_false =
+    make_assert<const bool>(true, _assert_false);
 
-template <typename T, typename U>
-requires(EqualComparable<T, U>) void check_not_equals(
-    T &&expected, U &&actual,
-    const std::source_location &where = std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state._total_assertions++;
-  state._test_state._total_assertions++;
-  _assert_not_equals(expected, actual, false, where);
-}
+inline constexpr auto check_false =
+    make_assert<const bool>(false, _assert_false);
+
+template <std::invocable Lambda>
+inline constexpr auto require_throws = make_assert<Lambda &&>(true,
+                                                              assert_throws);
+template <std::invocable Lambda>
+inline constexpr auto check_throws = make_assert<Lambda &&>(false,
+                                                            assert_throws);
+
+template <std::invocable Lambda>
+inline constexpr auto
+    require_no_throws = make_assert<Lambda &&>(true, assert_no_throws);
+
+template <std::invocable Lambda>
+inline constexpr auto
+    check_no_throws = make_assert<Lambda &&>(false, assert_no_throws);
+
+template <typename ExceptionType, std::invocable Lambda>
+inline constexpr auto
+    require_throws_with = make_assert<Lambda &&>(true, assert_throws_with);
+
+template <typename ExceptionType, std::invocable Lambda>
+inline constexpr auto
+    check_throws_with = make_assert<Lambda &&>(false, assert_throws_with);
+
+template <typename Expected, typename Actual>
+inline constexpr auto
+    require_equals = make_assert<Expected &&, Actual &&>(true, assert_equals);
+
+template <typename Expected, typename Actual>
+inline constexpr auto
+    check_equals = make_assert<Expected &&, Actual &&>(false, assert_equals);
+
+template <typename Expected, typename Actual>
+inline constexpr auto require_not_equals =
+    make_assert<Expected &&, Actual &&>(true, assert_not_equals);
+
+template <typename Expected, typename Actual>
+inline constexpr auto check_not_equals =
+    make_assert<Expected &&, Actual &&>(false, assert_not_equals);
+}; // namespace assertions
+
+/* template <typename Expected, typename Actual> */
+/* requires(InequalComparable<Expected, Actual>) void _assert_not_equals( */
+/*     Expected &&expected, Actual &&actual, bool to_break, */
+/*     const std::source_location &where) { */
+/*   auto &state = test_suite_state::instance(); */
+/*   try { */
+/*     if (!(expected != actual)) { */
+/*       state._assertion_failed++; */
+/*       state._test_state._assertion_failed++; */
+/*       if (to_break) { */
+/*         state._test_state._to_break = true; */
+/*       } */
+/*       log("Inequality Assertion Failed", expected, actual, where); */
+/*     } else { */
+/*       state._assertion_passed++; */
+/*       state._test_state._assertion_passed++; */
+/*     } */
+/*     return; */
+/*   } catch (const std::exception &ex) { */
+/*     std::string msg = "Uncaught Exception with message "; */
+/*     msg += ex.what(); */
+/*     log(msg, expected, actual, where); */
+/*   } catch (...) { */
+/*     log("Uncaught Exception", expected, actual, where); */
+/*   } */
+/*   if (to_break) { */
+/*     state._test_state._to_break = true; */
+/*   } */
+/*   state._assertion_failed++; */
+/*   state._test_state._assertion_failed++; */
+/*   state._unhandled_exceptions++; */
+/*   state._test_state._unhandled_exceptions++; */
+/* } */
+
+/* template <typename T, typename U> */
+/* requires(EqualComparable<T, U>) void require_equals( */
+/*     T &&expected, U &&actual, */
+/*     const std::source_location &where = std::source_location::current()) { */
+/*   auto &state = test_suite_state::instance(); */
+/*   state._total_assertions++; */
+/*   state._test_state._total_assertions++; */
+/*   if (state._test_state._to_break) { */
+/*     state._assertion_skipped++; */
+/*     state._test_state._assertion_skipped++; */
+/*     return; // Don't test more if the prev condition was failed */
+/*   } */
+/*   _assert_equals(expected, actual, true, where); */
+/* } */
+
+/* template <typename T, typename U> */
+/* requires(EqualComparable<T, U>) void check_equals( */
+/*     T &&expected, U &&actual, */
+/*     const std::source_location &where = std::source_location::current()) { */
+/*   auto &state = test_suite_state::instance(); */
+/*   state._total_assertions++; */
+/*   state._test_state._total_assertions++; */
+/*   _assert_equals(expected, actual, false, where); */
+/* } */
+
+/* template <typename T, typename U> */
+/* requires(InequalComparable<T, U>) void require_not_equals( */
+/*     T &&expected, U &&actual, */
+/*     const std::source_location &where = std::source_location::current()) { */
+/*   auto &state = test_suite_state::instance(); */
+/*   state._total_assertions++; */
+/*   state._test_state._total_assertions++; */
+/*   if (state._test_state._to_break) { */
+/*     state._assertion_skipped++; */
+/*     state._test_state._assertion_skipped++; */
+/*     return; // Don't test more if the prev condition was failed */
+/*   } */
+/*   _assert_not_equals(expected, actual, true, where); */
+/* } */
+
+/* template <typename T, typename U> */
+/* requires(EqualComparable<T, U>) void check_not_equals( */
+/*     T &&expected, U &&actual, */
+/*     const std::source_location &where = std::source_location::current()) { */
+/*   auto &state = test_suite_state::instance(); */
+/*   state._total_assertions++; */
+/*   state._test_state._total_assertions++; */
+/*   _assert_not_equals(expected, actual, false, where); */
+/* } */
 
 struct _test {
   std::ostream &os;
@@ -417,7 +480,6 @@ private:
     state.os << "Total Assertions : " << state._total_assertions << "\n";
     state.os << "Assertions Passed: " << state._assertion_passed << "\n";
     state.os << "Assertions Failed: " << state._assertion_failed << "\n";
-    state.os << "Assertions Skipped: " << state._assertion_skipped << "\n";
     state.os << "Total Unhanded Exceptions: " << state._unhandled_exceptions
              << "\n";
   }
@@ -454,6 +516,6 @@ struct test_suite {
   }
 };
 
-void run() { test_set::instance().run_all_tests(); }
+inline void run() { test_set::instance().run_all_tests(); }
 
 } // namespace cpptest
