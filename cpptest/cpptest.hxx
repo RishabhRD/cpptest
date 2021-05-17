@@ -85,6 +85,17 @@ private:
 
 namespace logging {
 
+inline void log_error(const std::string_view name,
+                      const std::string_view message,
+                      const std::source_location &where) {
+  test_suite_state &state = test_suite_state::instance();
+  state.os << "\n\n\n"
+           << name << " " << message << ':' << '\n'
+           << "Test Case: " << state._test_state.name << '\n'
+           << where.file_name() << "(" << where.line() << ":" << where.column()
+           << ") `" << '\n';
+}
+
 inline void log_error(const std::string_view message,
                       const std::source_location &where) {
   test_suite_state &state = test_suite_state::instance();
@@ -96,11 +107,12 @@ inline void log_error(const std::string_view message,
 }
 
 template <Printable Expected, Printable Actual>
-void log_error(const std::string_view message, Expected &&expected,
-               Actual &&actual, const std::source_location &where) {
+void log_error(const std::string_view name, const std::string_view message,
+               Expected &&expected, Actual &&actual,
+               const std::source_location &where) {
   test_suite_state &state = test_suite_state::instance();
   state.os << "\n\n\n"
-           << message << ':' << '\n'
+           << name << " " << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
            << where.file_name() << "(" << where.line() << ":" << where.column()
            << ") `" << '\n'
@@ -109,17 +121,50 @@ void log_error(const std::string_view message, Expected &&expected,
 }
 
 template <typename Expected, typename Actual>
-void log(const std::string_view message, Expected &&exptected, Actual &&actual,
+void log(const std::string_view name, const std::string_view message,
+         Expected &&exptected, Actual &&actual,
          const std::source_location &where) {
   if constexpr (Printable<Expected> && Printable<Actual>) {
-    log_error(message, exptected, actual, where);
+    log_error(name, message, exptected, actual, where);
   } else {
-    log_error(message, where);
+    log_error(name, message, where);
   }
 }
+
 }; // namespace logging
 
 namespace assertions {
+
+template <typename Expected, typename Actual>
+inline void assert_boilerplate(const bool to_break, const bool expr,
+                               Expected &&expected, Actual &&actual,
+                               std::string_view name,
+                               const std::source_location &where) {
+  auto &state = test_suite_state::instance();
+  state.assertion_added();
+  if (to_break) {
+    if (state.to_break()) {
+      return;
+    }
+  }
+  try {
+    if (!expr) {
+      state.assertion_failed(to_break);
+      logging::log(name, "Failed", std::forward<Expected>(expected),
+                   std::forward<Actual>(actual), where);
+    } else {
+      state.assertion_passed();
+    }
+    return;
+  } catch (const std::exception &ex) {
+    std::string msg = "Exception caught with message ";
+    msg += ex.what();
+    logging::log(name, msg, expected, actual, where);
+  } catch (...) {
+    logging::log(name, "Exception caught", expected, actual, where);
+  }
+  state.assertion_failed(to_break, true);
+}
 
 inline void _assert(const bool to_break, const bool expr,
                     const std::source_location &where) {
@@ -133,7 +178,7 @@ inline void _assert(const bool to_break, const bool expr,
   try {
     if (!expr) {
       state.assertion_failed(to_break);
-      logging::log_error("Assertion Failed", where);
+      logging::log_error("Failed", where);
     } else {
       state.assertion_passed();
     }
@@ -218,58 +263,20 @@ template <typename Expected, typename Actual>
 requires(EqualComparable<Expected, Actual>) inline void assert_equals(
     const bool to_break, Expected &&expected, Actual &&actual,
     const std::source_location &where) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    if (!(expected == actual)) {
-      state.assertion_failed(to_break);
-      logging::log("Equality Assertion Failed", expected, actual, where);
-    } else {
-      state.assertion_passed();
-    }
-    return;
-  } catch (const std::exception &ex) {
-    std::string msg = "Uncaught Exception with message ";
-    msg += ex.what();
-    logging::log(msg, expected, actual, where);
-  } catch (...) {
-    logging::log("Uncaught Exception", expected, actual, where);
-  }
-  state.assertion_failed(to_break, true);
+  assert_boilerplate(to_break, expected == actual,
+                     std::forward<Expected>(expected),
+                     std::forward<Actual>(actual),
+                     to_break ? "[require_equals]" : "[check_equals]", where);
 }
 
 template <typename Expected, typename Actual>
 requires(InequalComparable<Expected, Actual>) inline void assert_not_equals(
     bool to_break, Expected &&expected, Actual &&actual,
     const std::source_location &where) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    if (!(expected != actual)) {
-      state.assertion_failed(to_break);
-      logging::log("Inequality Assertion Failed", expected, actual, where);
-    } else {
-      state.assertion_passed();
-    }
-    return;
-  } catch (const std::exception &ex) {
-    std::string msg = "Uncaught Exception with message ";
-    msg += ex.what();
-    logging::log(msg, expected, actual, where);
-  } catch (...) {
-    logging::log("Uncaught Exception", expected, actual, where);
-  }
-  state.assertion_failed(to_break, true);
+  assert_boilerplate(
+      to_break, expected != actual, std::forward<Expected>(expected),
+      std::forward<Actual>(actual),
+      to_break ? "[require_not_equals]" : "[check_not_equals]", where);
 }
 
 inline void
