@@ -15,7 +15,7 @@ template <class T> concept Printable = requires(std::ostream &os, T a) {
 };
 
 template <typename Expected, typename Actual, typename Compare>
-concept Comparable = requires(Expected&& ex, Actual&& ac, Compare&& comp) {
+concept Comparable = requires(Expected &&ex, Actual &&ac, Compare &&comp) {
   { comp(ex, ac) }
   ->std::same_as<bool>;
 };
@@ -282,8 +282,7 @@ void assert_throws_with(
 template <typename Expected, typename Actual, typename Compare>
 requires(Comparable<Expected, Actual, Compare>) inline void assert_equals(
     const bool to_break, Expected &&expected, Actual &&actual,
-    Compare&& compare,
-    const std::source_location &where) {
+    Compare &&compare, const std::source_location &where) {
   assert_boilerplate(to_break, compare(expected, actual),
                      std::forward<Expected>(expected),
                      std::forward<Actual>(actual),
@@ -292,8 +291,7 @@ requires(Comparable<Expected, Actual, Compare>) inline void assert_equals(
 
 template <typename Expected, typename Actual, typename Compare>
 requires(Comparable<Expected, Actual, Compare>) inline void assert_not_equals(
-    bool to_break, Expected &&expected, Actual &&actual,
-    Compare&& compare,
+    bool to_break, Expected &&expected, Actual &&actual, Compare &&compare,
     const std::source_location &where) {
   assert_boilerplate(
       to_break, compare(expected, actual), std::forward<Expected>(expected),
@@ -367,58 +365,53 @@ inline void check_throws_with(
 
 template <typename Expected, typename Actual, typename Compare = equal_to>
 inline void require_equals(
-    Expected &&expected, Actual &&actual, Compare&& compare = equal_to(),
+    Expected &&expected, Actual &&actual, Compare &&compare = equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_equals(true, std::forward<Expected>(expected),
-                std::forward<Actual>(actual), std::forward<Compare>(compare), where);
+                std::forward<Actual>(actual), std::forward<Compare>(compare),
+                where);
 }
 
 template <typename Expected, typename Actual, typename Compare = equal_to>
 inline void check_equals(
-    Expected &&expected, Actual &&actual,
-    Compare&& compare = equal_to(),
+    Expected &&expected, Actual &&actual, Compare &&compare = equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_equals(false, std::forward<Expected>(expected),
-                std::forward<Actual>(actual), std::forward<Compare>(compare), where);
+                std::forward<Actual>(actual), std::forward<Compare>(compare),
+                where);
 }
 
 template <typename Expected, typename Actual, typename Compare = not_equal_to>
 inline auto require_not_equals(
-    Expected &&expected, Actual &&actual,
-    Compare&& compare = not_equal_to(),
+    Expected &&expected, Actual &&actual, Compare &&compare = not_equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_not_equals(true, std::forward<Expected>(expected),
-                    std::forward<Actual>(actual), std::forward<Compare>(compare), where);
+                    std::forward<Actual>(actual),
+                    std::forward<Compare>(compare), where);
 }
 template <typename Expected, typename Actual, typename Compare = not_equal_to>
 inline auto check_not_equals(
-    Expected &&expected, Actual &&actual,
-    Compare&& compare = not_equal_to(),
+    Expected &&expected, Actual &&actual, Compare &&compare = not_equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_not_equals(false, std::forward<Expected>(expected),
-                    std::forward<Actual>(actual), std::forward<Compare>(compare), where);
+                    std::forward<Actual>(actual),
+                    std::forward<Compare>(compare), where);
 }
 }; // namespace assertions
 
-struct _test {
+namespace details{
+
+struct test {
   std::ostream &os;
   std::function<void()> func;
   test_suite_state &state;
-  std::string name;
+  std::string_view name;
   test_state _test_state;
 
   template <std::invocable Func>
-  _test(const std::string &test_name, Func &&func, std::ostream &os = std::cout)
+  test(const std::string_view test_name, Func &&func, std::ostream &os = std::cout)
       : os(os), func(std::forward<Func>(func)),
         state(test_suite_state::instance(os)), name(test_name) {
-    _test_state.name = name;
-    state._total_tests++;
-  }
-
-  template <std::invocable Func>
-  _test(std::string &&test_name, Func &&func, std::ostream &os = std::cout)
-      : os(os), func(std::forward<Func>(func)),
-        state(test_suite_state::instance(os)), name(std::move(test_name)) {
     _test_state.name = name;
     state._total_tests++;
   }
@@ -426,10 +419,11 @@ struct _test {
   void operator()() const { func(); }
 };
 
-struct test_set {
-  void add_test(const _test &test_case) { tests.push_back(test_case); }
 
-  void add_test(_test &&test_case) { tests.push_back(std::move(test_case)); }
+struct test_set {
+  void add_test(const test &test_case) { tests.push_back(test_case); }
+
+  void add_test(test &&test_case) { tests.push_back(std::move(test_case)); }
 
   void run_all_tests() {
     for (auto &current_test : tests) {
@@ -453,7 +447,7 @@ struct test_set {
 private:
   test_set(){};
   test_suite_state &state = test_suite_state::instance();
-  std::vector<_test> tests;
+  std::vector<test> tests;
 
   void print_test_results() {
     state.os << "\n\n";
@@ -466,17 +460,19 @@ private:
   }
 };
 
-template <std::invocable Func>
-void test_case(const std::string &desc, Func &&func,
-               std::ostream &os = std::cout) {
-  auto current_test_case = _test(desc, std::forward<Func>(func), os);
-  test_set::instance().add_test(std::move(current_test_case));
-}
+struct test_helper {
+  std::string_view name;
+  test_set& tests = test_set::instance();
 
-template <std::invocable Func>
-void test_case(std::string &&desc, Func &&func, std::ostream &os = std::cout) {
-  auto current_test_case = _test(std::move(desc), std::forward<Func>(func), os);
-  test_set::instance().add_test(std::move(current_test_case));
+  template <std::invocable Func>
+  void operator=(Func&& func){
+    auto current_test_case = test(name, std::forward<Func>(func));
+    tests.add_test(std::move(current_test_case));
+  }
+};
+
+inline auto operator""_test(const char* name, decltype(sizeof("")) size){
+  return test_helper{{name, size}};
 }
 
 template <std::invocable Func> struct _test_suite {
@@ -497,6 +493,7 @@ struct test_suite {
   }
 };
 
-inline void run() { test_set::instance().run_all_tests(); }
+}
+inline void run() { details::test_set::instance().run_all_tests(); }
 
 } // namespace cpptest

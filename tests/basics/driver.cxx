@@ -8,21 +8,23 @@
 
 using namespace cpptest;
 using namespace cpptest::assertions;
+using namespace cpptest::details;
 
 #define exp(x) [&] { x }
 
 auto primary_tests = test_suite([] {
-  test_case("Obvious truth", []() { require(1 < 2); });
-  test_case("Obvious lie", []() { require(2 < 1); });
+  "Obvious Truth"_test = [] {
+    require(1 < 2);
+    require_not_equals(1, 2);
+  };
+
+  "Obvious Lie"_test = [] { require(1 > 2); };
 });
 
-auto equal_tests = test_suite([] {
-  test_case("Equality Obvious truth", []() {
-    require_not_equals(1, 2);
-    require_equals(1, 2);
-    require_equals(1, 2, [](auto x, auto y){ return x != y ;});
-    require_no_throws(exp(throw "helo";));
-  });
+auto other_tests = test_suite([] {
+    "Not equals"_test = []{
+      require_not_equals(1, 4);
+    };
 });
 
 int main(int argc, char **argv) { cpptest::run(); }
