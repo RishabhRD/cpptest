@@ -18,6 +18,10 @@ test_suite primary_tests = [] {
     require_not_equals(1, 2);
   };
 
+  subtest("inside") = []{
+    require(1 == 3);
+  };
+
   "Obvious Lie"_test = [] { require(1 > 2); };
 };
 

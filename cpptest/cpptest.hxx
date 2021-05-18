@@ -499,6 +499,10 @@ struct test_suite {
   }
 };
 
+constexpr auto subtest = [](const auto name){
+  return test(name);
+};
+
 }
 inline void run() { details::test_set::instance().run_all_tests(); }
 
