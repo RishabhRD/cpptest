@@ -401,7 +401,7 @@ inline auto check_not_equals(
 
 namespace details{
 
-struct test {
+struct test_impl {
   std::ostream &os;
   std::function<void()> func;
   test_suite_state &state;
@@ -409,7 +409,7 @@ struct test {
   test_state _test_state;
 
   template <std::invocable Func>
-  test(const std::string_view test_name, Func &&func, std::ostream &os = std::cout)
+  test_impl(const std::string_view test_name, Func &&func, std::ostream &os = std::cout)
       : os(os), func(std::forward<Func>(func)),
         state(test_suite_state::instance(os)), name(test_name) {
     _test_state.name = name;
@@ -421,9 +421,9 @@ struct test {
 
 
 struct test_set {
-  void add_test(const test &test_case) { tests.push_back(test_case); }
+  void add_test(const test_impl &test_case) { tests.push_back(test_case); }
 
-  void add_test(test &&test_case) { tests.push_back(std::move(test_case)); }
+  void add_test(test_impl &&test_case) { tests.push_back(std::move(test_case)); }
 
   void run_all_tests() {
     for (auto &current_test : tests) {
@@ -447,7 +447,7 @@ struct test_set {
 private:
   test_set(){};
   test_suite_state &state = test_suite_state::instance();
-  std::vector<test> tests;
+  std::vector<test_impl> tests;
 
   void print_test_results() {
     state.os << "\n\n";
@@ -460,19 +460,25 @@ private:
   }
 };
 
-struct test_helper {
+struct test {
   std::string_view name;
   test_set& tests = test_set::instance();
 
+  test(const char* name) : name(name){
+  }
+
+  test(const char* name, decltype(sizeof("")) size) : name{name, size}{
+  }
+  
   template <std::invocable Func>
   void operator=(Func&& func){
-    auto current_test_case = test(name, std::forward<Func>(func));
+    auto current_test_case = test_impl(name, std::forward<Func>(func));
     tests.add_test(std::move(current_test_case));
   }
 };
 
 inline auto operator""_test(const char* name, decltype(sizeof("")) size){
-  return test_helper{{name, size}};
+  return test{name, size};
 }
 
 template <std::invocable Func> struct _test_suite {

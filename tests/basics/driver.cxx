@@ -25,6 +25,9 @@ auto other_tests = test_suite([] {
     "Not equals"_test = []{
       require_not_equals(1, 4);
     };
+    test("Equals") = []{
+      require_equals(1, 1);
+    };
 });
 
 int main(int argc, char **argv) { cpptest::run(); }
