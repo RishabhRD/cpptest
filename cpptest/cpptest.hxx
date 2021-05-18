@@ -106,7 +106,7 @@ private:
 
 namespace logging {
 
-  namespace fs = std::filesystem;
+namespace fs = std::filesystem;
 
 inline void log_error(const std::string_view name,
                       const std::string_view message,
@@ -115,8 +115,8 @@ inline void log_error(const std::string_view name,
   state.os << "\n\n\n"
            << name << " " << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << fs::path(where.file_name()).filename().generic_string() << ":" << where.line()
-           << '\n';
+           << fs::path(where.file_name()).filename().generic_string() << ":"
+           << where.line() << '\n';
 }
 
 inline void log_error(const std::string_view message,
@@ -125,8 +125,8 @@ inline void log_error(const std::string_view message,
   state.os << "\n\n\n"
            << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << fs::path(where.file_name()).filename().generic_string() << ":" << where.line()
-           << '\n';
+           << fs::path(where.file_name()).filename().generic_string() << ":"
+           << where.line() << '\n';
 }
 
 template <Printable Expected, Printable Actual>
@@ -137,8 +137,8 @@ void log_error(const std::string_view name, const std::string_view message,
   state.os << "\n\n\n"
            << name << " " << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << fs::path(where.file_name()).filename().generic_string() << ":" << where.line()
-           << '\n'
+           << fs::path(where.file_name()).filename().generic_string() << ":"
+           << where.line() << '\n'
            << "Expected: " << expected << '\n'
            << "Actual: " << actual << '\n';
 }
@@ -402,31 +402,39 @@ inline auto check_not_equals(
 }
 }; // namespace assertions
 
-namespace details{
+namespace details {
+
+struct tag {
+  std::vector<std::string_view> tags;
+};
 
 struct test_impl {
   std::ostream &os;
+  tag test_tag;
   std::function<void()> func;
-  test_suite_state &state;
   std::string_view name;
+  test_suite_state &state;
   test_state _test_state;
 
-  template <std::invocable Func>
-  test_impl(const std::string_view test_name, Func &&func, std::ostream &os = std::cout)
+  template <std::invocable Func, std::same_as<tag> Tag>
+  test_impl(const std::string_view test_name, Tag&& test_tag, Func &&func,
+            std::ostream &os = std::cout)
       : os(os), func(std::forward<Func>(func)),
-        state(test_suite_state::instance(os)), name(test_name) {
+        state(test_suite_state::instance(os)), name(test_name), test_tag(std::forward<Tag>(test_tag)) {
     _test_state.name = name;
     state._total_tests++;
   }
 
+
   void operator()() const { func(); }
 };
-
 
 struct test_set {
   void add_test(const test_impl &test_case) { tests.push_back(test_case); }
 
-  void add_test(test_impl &&test_case) { tests.push_back(std::move(test_case)); }
+  void add_test(test_impl &&test_case) {
+    tests.push_back(std::move(test_case));
+  }
 
   void run_all_tests() {
     for (auto &current_test : tests) {
@@ -465,22 +473,20 @@ private:
 
 struct test {
   std::string_view name;
-  test_set& tests = test_set::instance();
+  tag test_tag;
+  test_set &tests = test_set::instance();
 
-  test(const char* name) : name(name){
-  }
+  test(const char *name) : name(name) {}
 
-  test(const char* name, decltype(sizeof("")) size) : name{name, size}{
-  }
-  
-  template <std::invocable Func>
-  void operator=(Func&& func){
-    auto current_test_case = test_impl(name, std::forward<Func>(func));
+  test(const char *name, decltype(sizeof("")) size) : name{name, size} {}
+
+  template <std::invocable Func> void operator=(Func &&func) {
+    auto current_test_case = test_impl(name,  std::move(test_tag), std::forward<Func>(func));
     tests.add_test(std::move(current_test_case));
   }
 };
 
-inline auto operator""_test(const char* name, decltype(sizeof("")) size){
+inline auto operator""_test(const char *name, decltype(sizeof("")) size) {
   return test{name, size};
 }
 
@@ -502,11 +508,9 @@ struct test_suite {
   }
 };
 
-constexpr auto subtest = [](const auto name){
-  return test(name);
-};
+constexpr auto subtest = [](const auto name) { return test(name); };
 
-}
+} // namespace details
 inline void run() { details::test_set::instance().run_all_tests(); }
 
 } // namespace cpptest
