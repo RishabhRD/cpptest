@@ -14,6 +14,12 @@ template <class T> concept Printable = requires(std::ostream &os, T a) {
   ->std::same_as<std::ostream &>;
 };
 
+template <typename Expected, typename Actual, typename Compare>
+concept Comparable = requires(Expected&& ex, Actual&& ac, Compare&& comp) {
+  { comp(ex, ac) }
+  ->std::same_as<bool>;
+};
+
 template <typename T, typename U> concept EqualComparable = requires(T t, U u) {
   { t == u }
   ->std::same_as<bool>;
@@ -23,6 +29,20 @@ template <typename T, typename U>
 concept InequalComparable = requires(T t, U u) {
   { t != u }
   ->std::same_as<bool>;
+};
+
+struct equal_to {
+  template <typename T, typename U>
+  requires EqualComparable<T, U> bool operator()(const T &t, const U &u) {
+    return t == u;
+  }
+};
+
+struct not_equal_to {
+  template <typename T, typename U>
+  requires InequalComparable<T, U> bool operator()(T &&t, U &&u) {
+    return t != u;
+  }
 };
 
 struct test_state {
@@ -259,22 +279,24 @@ void assert_throws_with(
   logging::log_error("Didn't throw required exception", where);
 }
 
-template <typename Expected, typename Actual>
-requires(EqualComparable<Expected, Actual>) inline void assert_equals(
+template <typename Expected, typename Actual, typename Compare>
+requires(Comparable<Expected, Actual, Compare>) inline void assert_equals(
     const bool to_break, Expected &&expected, Actual &&actual,
+    Compare&& compare,
     const std::source_location &where) {
-  assert_boilerplate(to_break, expected == actual,
+  assert_boilerplate(to_break, compare(expected, actual),
                      std::forward<Expected>(expected),
                      std::forward<Actual>(actual),
                      to_break ? "[require_equals]" : "[check_equals]", where);
 }
 
-template <typename Expected, typename Actual>
-requires(InequalComparable<Expected, Actual>) inline void assert_not_equals(
+template <typename Expected, typename Actual, typename Compare>
+requires(Comparable<Expected, Actual, Compare>) inline void assert_not_equals(
     bool to_break, Expected &&expected, Actual &&actual,
+    Compare&& compare,
     const std::source_location &where) {
   assert_boilerplate(
-      to_break, expected != actual, std::forward<Expected>(expected),
+      to_break, compare(expected, actual), std::forward<Expected>(expected),
       std::forward<Actual>(actual),
       to_break ? "[require_not_equals]" : "[check_not_equals]", where);
 }
@@ -343,35 +365,38 @@ inline void check_throws_with(
   assert_throws_with(false, std::forward<Lambda>(lambda), where);
 }
 
-template <typename Expected, typename Actual>
+template <typename Expected, typename Actual, typename Compare = equal_to>
 inline void require_equals(
-    Expected &&expected, Actual &&actual,
+    Expected &&expected, Actual &&actual, Compare&& compare = equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_equals(true, std::forward<Expected>(expected),
-                std::forward<Actual>(actual), where);
+                std::forward<Actual>(actual), std::forward<Compare>(compare), where);
 }
 
-template <typename Expected, typename Actual>
+template <typename Expected, typename Actual, typename Compare = equal_to>
 inline void check_equals(
     Expected &&expected, Actual &&actual,
+    Compare&& compare = equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_equals(false, std::forward<Expected>(expected),
-                std::forward<Actual>(actual), where);
+                std::forward<Actual>(actual), std::forward<Compare>(compare), where);
 }
 
-template <typename Expected, typename Actual>
+template <typename Expected, typename Actual, typename Compare = not_equal_to>
 inline auto require_not_equals(
     Expected &&expected, Actual &&actual,
+    Compare&& compare = not_equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_not_equals(true, std::forward<Expected>(expected),
-                    std::forward<Actual>(actual), where);
+                    std::forward<Actual>(actual), std::forward<Compare>(compare), where);
 }
-template <typename Expected, typename Actual>
+template <typename Expected, typename Actual, typename Compare = not_equal_to>
 inline auto check_not_equals(
     Expected &&expected, Actual &&actual,
+    Compare&& compare = not_equal_to(),
     const std::source_location &where = std::source_location::current()) {
   assert_not_equals(false, std::forward<Expected>(expected),
-                    std::forward<Actual>(actual), where);
+                    std::forward<Actual>(actual), std::forward<Compare>(compare), where);
 }
 }; // namespace assertions
 
