@@ -8,11 +8,11 @@
 
 using namespace cpptest;
 using namespace cpptest::assertions;
-using namespace cpptest::details;
 
 #define exp(x) [&] { x }
 
 test_suite primary_tests = [] {
+  tag("disable") + tag("enable") +
   "Obvious Truth"_test = [] {
     require(1 < 2);
     require_not_equals(1, 2);

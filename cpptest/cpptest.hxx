@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -417,14 +418,14 @@ struct test_impl {
   test_state _test_state;
 
   template <std::invocable Func, std::same_as<tag> Tag>
-  test_impl(const std::string_view test_name, Tag&& test_tag, Func &&func,
+  test_impl(const std::string_view test_name, Tag &&test_tag, Func &&func,
             std::ostream &os = std::cout)
       : os(os), func(std::forward<Func>(func)),
-        state(test_suite_state::instance(os)), name(test_name), test_tag(std::forward<Tag>(test_tag)) {
+        state(test_suite_state::instance(os)), name(test_name),
+        test_tag(std::forward<Tag>(test_tag)) {
     _test_state.name = name;
     state._total_tests++;
   }
-
 
   void operator()() const { func(); }
 };
@@ -478,17 +479,16 @@ struct test {
 
   test(const char *name) : name(name) {}
 
+  test(std::string_view name) : name(name) {}
+
   test(const char *name, decltype(sizeof("")) size) : name{name, size} {}
 
   template <std::invocable Func> void operator=(Func &&func) {
-    auto current_test_case = test_impl(name,  std::move(test_tag), std::forward<Func>(func));
+    auto current_test_case =
+        test_impl(name, std::move(test_tag), std::forward<Func>(func));
     tests.add_test(std::move(current_test_case));
   }
 };
-
-inline auto operator""_test(const char *name, decltype(sizeof("")) size) {
-  return test{name, size};
-}
 
 template <std::invocable Func> struct _test_suite {
 
@@ -511,6 +511,45 @@ struct test_suite {
 constexpr auto subtest = [](const auto name) { return test(name); };
 
 } // namespace details
+
+namespace operators {
+inline details::tag operator+(const details::tag &firstTag,
+                              const details::tag &secondTag) {
+  details::tag t;
+  auto insert_tags = [&t](std::string_view name) {
+    if (std::find(t.tags.begin(), t.tags.end(), name) == t.tags.end()) {
+      t.tags.push_back(name);
+    }
+  };
+  std::for_each(firstTag.tags.begin(), firstTag.tags.end(), insert_tags);
+  std::for_each(secondTag.tags.begin(), secondTag.tags.end(), insert_tags);
+  return t;
+}
+
+inline details::test operator+(const details::tag &first,
+                               const details::test &second) {
+  details::test t(second.name);
+  auto insert_tags = [&t](std::string_view name) {
+    if (std::find(t.test_tag.tags.begin(), t.test_tag.tags.end(), name) ==
+        t.test_tag.tags.end()) {
+      t.test_tag.tags.push_back(name);
+    }
+  };
+  std::for_each(first.tags.begin(), first.tags.end(), insert_tags);
+  return t;
+}
+inline auto operator""_test(const char *name, decltype(sizeof("")) size) {
+  return details::test{name, size};
+}
+}; // namespace operators
 inline void run() { details::test_set::instance().run_all_tests(); }
+
+inline details::tag tag(const char *name) { return details::tag{{name}}; }
+
+using details::subtest;
+using details::test;
+using details::test_suite;
+using operators::operator""_test;
+using operators::operator+;
 
 } // namespace cpptest
