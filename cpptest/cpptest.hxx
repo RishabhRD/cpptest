@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -105,6 +106,8 @@ private:
 
 namespace logging {
 
+  namespace fs = std::filesystem;
+
 inline void log_error(const std::string_view name,
                       const std::string_view message,
                       const std::source_location &where) {
@@ -112,8 +115,8 @@ inline void log_error(const std::string_view name,
   state.os << "\n\n\n"
            << name << " " << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << where.file_name() << "(" << where.line() << ":" << where.column()
-           << ") `" << '\n';
+           << fs::path(where.file_name()).filename().generic_string() << ":" << where.line()
+           << '\n';
 }
 
 inline void log_error(const std::string_view message,
@@ -122,8 +125,8 @@ inline void log_error(const std::string_view message,
   state.os << "\n\n\n"
            << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << where.file_name() << "(" << where.line() << ":" << where.column()
-           << ") `" << '\n';
+           << fs::path(where.file_name()).filename().generic_string() << ":" << where.line()
+           << '\n';
 }
 
 template <Printable Expected, Printable Actual>
@@ -134,8 +137,8 @@ void log_error(const std::string_view name, const std::string_view message,
   state.os << "\n\n\n"
            << name << " " << message << ':' << '\n'
            << "Test Case: " << state._test_state.name << '\n'
-           << where.file_name() << "(" << where.line() << ":" << where.column()
-           << ") `" << '\n'
+           << fs::path(where.file_name()).filename().generic_string() << ":" << where.line()
+           << '\n'
            << "Expected: " << expected << '\n'
            << "Actual: " << actual << '\n';
 }
