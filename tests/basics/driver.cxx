@@ -12,14 +12,14 @@ using namespace cpptest::details;
 
 #define exp(x) [&] { x }
 
-auto primary_tests = test_suite([] {
+test_suite primary_tests = [] {
   "Obvious Truth"_test = [] {
     require(1 < 2);
     require_not_equals(1, 2);
   };
 
   "Obvious Lie"_test = [] { require(1 > 2); };
-});
+};
 
 auto other_tests = test_suite([] {
     "Not equals"_test = []{
