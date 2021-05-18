@@ -20,6 +20,7 @@ auto equal_tests = test_suite([] {
   test_case("Equality Obvious truth", []() {
     require_not_equals(1, 2);
     require_equals(1, 2);
+    require_equals(1, 2, [](auto x, auto y){ return x != y ;});
     require_no_throws(exp(throw "helo";));
   });
 });
