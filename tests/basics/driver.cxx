@@ -12,26 +12,19 @@ using namespace cpptest::assertions;
 #define exp(x) [&] { x }
 
 test_suite primary_tests = [] {
-  tag("disable") + tag("enable") +
-  "Obvious Truth"_test = [] {
+  tag("disable") + tag("enable") + "Obvious Truth"_test = [] {
+    int n = 2;
     require(1 < 2);
     require_not_equals(1, 2);
-  };
-
-  subtest("inside") = []{
-    require(1 == 3);
+    subtest("inside") = [] { require(1 == 2); };
   };
 
   "Obvious Lie"_test = [] { require(1 > 2); };
 };
 
 auto other_tests = test_suite([] {
-    "Not equals"_test = []{
-      require_not_equals(1, 4);
-    };
-    test("Equals") = []{
-      require_equals(1, 1);
-    };
+  "Not equals"_test = [] { require_not_equals(1, 4); };
+  test("Equals") = [] { require_equals(1, 1); };
 });
 
 int main(int argc, char **argv) { cpptest::run(); }
