@@ -134,6 +134,12 @@ template <typename Expr> struct assertion_passed {
   std::source_location where;
 };
 
+template <typename Expr> struct assertion_exception {
+  Expr expr;
+  std::source_location where;
+  const char *msg;
+};
+
 template <typename Msg> struct log { Msg msg; };
 
 struct exception {
@@ -194,17 +200,24 @@ public:
 
   void on(events::test_run test) { logger.on(test); }
 
-  template <typename Expr> void on(events::assertion_added<Expr> test) {
-    logger.on(test);
+  template <typename Msg> void on(events::log<Msg> msg) { logger.on(msg); }
+
+  template <typename Expr> void on(events::assertion_added<Expr> assertion) {
+    logger.on(assertion);
   }
 
-  template <typename Expr> void on(events::assertion_failed<Expr> test) {
+  template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
     current_test_failed = true;
-    logger.on(test);
+    logger.on(assertion);
   }
 
-  template <typename Expr> void on(events::assertion_passed<Expr> test) {
-    logger.on(test);
+  template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
+    logger.on(assertion);
+  }
+
+  template <typename Expr>
+  void on(events::assertion_exception<Expr> assertion) {
+    logger.on(assertion);
   }
 
   void run(std::vector<std::string_view> tags) {
@@ -239,6 +252,9 @@ template <typename Printer> class logger {
 
   template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
     assertion_failed++;
+    if (!already_failed) {
+      test_failed++;
+    }
     print_dash();
     printer << basename(test_stack.front().where.file_name()) << ':'
             << test_stack.front().where.line() << ':' << '\n'
@@ -254,21 +270,42 @@ template <typename Printer> class logger {
     print_dash();
   }
 
+  template <typename Expr>
+  void on(events::assertion_exception<Expr> assertion) {
+    assertion_failed++;
+    if (!already_failed) {
+      test_failed++;
+    }
+    print_dash();
+    printer << basename(test_stack.front().where.file_name()) << ':'
+            << test_stack.front().where.line() << ':' << '\n'
+            << printer.colors.warning
+            << "TEST CASE:  " << printer.colors.normal;
+    print_test_case_names();
+    printer << basename(assertion.where.file_name()) << ':'
+            << assertion.where.line() << ':';
+    printer << printer.colors.error << "ERROR: " << printer.colors.normal;
+    printer << "[ ";
+    printer << assertion.expr;
+    printer << " ] failed with exception\n"
+            << "Exception : " << assertion.msg << '\n';
+    print_dash();
+  }
+
   template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
     assertion_passed++;
   }
 
-  template <typename Expr> void on(events::test_begin test) {
+  void on(events::test_begin test) {
     test_stack.push_back(test);
+    already_failed = false;
   }
 
-  template <typename Expr> void on(events::test_end test) {
-    test_stack.pop_back();
-  }
+  void on(events::test_end test) { test_stack.pop_back(); }
 
-  template <typename Expr> void on(events::test_skipped test) {
-    test_skipped++;
-  }
+  void on(events::test_skipped test) { test_skipped++; }
+
+  void on(events::test_run) {}
 
   void on(events::summary) {
     printer << printer.colors.heading << "[cpptest] " << printer.colors.normal
@@ -314,6 +351,10 @@ template <typename Printer> class logger {
     std::cout.flush();
   }
 
+  template <typename Msg> void on(events::log<Msg> msg) {
+    printer << msg << '\n';
+  }
+
 private:
   inline void print_dash() {
     printer << printer.colors.warn;
@@ -335,6 +376,7 @@ private:
 
 private:
   Printer printer;
+  bool already_failed = false;
   std::size_t test_level{};
   std::size_t assertion_failed{};
   std::size_t assertion_passed{};
