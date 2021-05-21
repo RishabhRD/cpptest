@@ -7,24 +7,32 @@
 #include <cpptest/version.hxx>
 
 using namespace cpptest;
-using namespace cpptest::assertions;
 
 #define exp(x) [&] { x }
 
-test_suite primary_tests = [] {
-  tag("disable") + tag("enable") + "Obvious Truth"_test = [] {
-    int n = 2;
-    require(1 < 2);
-    require_not_equals(1, 2);
-    subtest("inside") = [] { require(1 == 2); };
+
+test_suite s1 = []{
+
+  test("Obvious truth") = []{
+    require(42 == 42);
+    require(equals(42, 42));
   };
 
-  "Obvious Lie"_test = [] { require(1 > 2); };
+  test("Obvious lie") = []{
+    int n = 4;
+    check(42 == 43);
+    check(equals(42, 43));
+
+    subtest("Even more lie") = []{
+      check(not_equals(std::string_view("sample_text"), std::string_view("sample_text")));
+    };
+
+    subtest("Lie including outside") = [=]{
+      check(not_equals(n, 4));
+    };
+  };
+
 };
 
-auto other_tests = test_suite([] {
-  "Not equals"_test = [] { require_not_equals(1, 4); };
-  test("Equals") = [] { require_equals(1, 1); };
-});
 
 int main(int argc, char **argv) { cpptest::run(); }

@@ -82,7 +82,7 @@ struct tag {
   std::vector<std::string_view> tags;
 
   bool contains(std::string_view tag_name) {
-    return std::find(tags.begin(), tags.end(), tag_name) == tags.end();
+    return std::find(tags.begin(), tags.end(), tag_name) != tags.end();
   }
 
   bool is_empty() { return tags.empty(); }
@@ -98,9 +98,15 @@ struct tag {
   auto end() const { return tags.end(); }
 
   auto satisfies(const tag &t) {
-    return std::find_if(t.begin(), t.end(), [this](std::string_view tag_name) {
-             return contains(tag_name);
-           }) != std::end(t);
+    if (t.tags.size() == 0) {
+      return true;
+    }
+    for (auto str : t) {
+      if (contains(str)) {
+        return true;
+      }
+    }
+    return false;
   }
 };
 
@@ -161,12 +167,6 @@ template <typename Expr> struct assertion_failed {
 template <typename Expr> struct assertion_passed {
   Expr expr;
   std::source_location where;
-};
-
-template <typename Expr> struct assertion_exception {
-  Expr expr;
-  std::source_location where;
-  const char *msg;
 };
 
 template <typename Msg> struct log { Msg msg; };
@@ -261,7 +261,7 @@ requires(
     concepts::Comparable<LHS, RHS, Compare> &&std::is_copy_constructible_v<LHS>
         &&std::is_copy_constructible_v<RHS>) struct comparator
     : public expression {
-  comparator(const LHS &lhs, const RHS &rhs, Compare &compare)
+  comparator(const LHS &lhs, const RHS &rhs, Compare &&compare)
       : _lhs(lhs), _rhs(rhs), _value(compare(lhs, rhs)) {}
 
   constexpr operator bool() const { return _value; }
@@ -277,78 +277,113 @@ private:
 };
 
 template <typename LHS, typename RHS, typename Compare>
-struct equals_ : public comparator<LHS, RHS, Compare> {};
+struct equals_ : public comparator<LHS, RHS, Compare> {
+  equals_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct not_equals_ : public comparator<LHS, RHS, Compare> {};
+struct not_equals_ : public comparator<LHS, RHS, Compare> {
+  not_equals_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct greater_ : public comparator<LHS, RHS, Compare> {};
+struct greater_ : public comparator<LHS, RHS, Compare> {
+  greater_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct greater_equals_ : public comparator<LHS, RHS, Compare> {};
+struct greater_equals_ : public comparator<LHS, RHS, Compare> {
+  greater_equals_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct lesser_ : public comparator<LHS, RHS, Compare> {};
+struct lesser_ : public comparator<LHS, RHS, Compare> {
+  lesser_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct lesser_equals_ : public comparator<LHS, RHS, Compare> {};
+struct lesser_equals_ : public comparator<LHS, RHS, Compare> {
+  lesser_equals_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct and_ : public comparator<LHS, RHS, Compare> {};
+struct and_ : public comparator<LHS, RHS, Compare> {
+  and_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare>
-struct or_ : public comparator<LHS, RHS, Compare> {};
+struct or_ : public comparator<LHS, RHS, Compare> {
+  or_(const LHS &lhs, const RHS &rhs, Compare &&compare)
+      : comparator<LHS, RHS, Compare>(lhs, rhs,
+                                      std::forward<Compare>(compare)) {}
+};
 
 template <typename LHS, typename RHS, typename Compare = comparators::equal_to>
 auto equals(const LHS &lhs, const RHS &rhs,
-            const Compare &compare = comparators::equal_to{}) {
-  return equals_(lhs, rhs, compare);
+            Compare &&compare = comparators::equal_to{}) {
+  return equals_<LHS, RHS, Compare>(lhs, rhs, std::forward<Compare>(compare));
 }
 
 template <typename LHS, typename RHS,
           typename Compare = comparators::not_equal_to>
 auto not_equals(const LHS &lhs, const RHS &rhs,
-                const Compare &compare = comparators::not_equal_to{}) {
-  return not_equals_(lhs, rhs, compare);
+                Compare &&compare = comparators::not_equal_to{}) {
+  return not_equals_<LHS, RHS, Compare>(lhs, rhs,
+                                        std::forward<Compare>(compare));
 }
 
 template <typename LHS, typename RHS,
           typename Compare = comparators::greater_than>
 auto greater(const LHS &lhs, const RHS &rhs,
-             const Compare &compare = comparators::greater_than{}) {
-  return greater_(lhs, rhs, compare);
+             Compare &&compare = comparators::greater_than{}) {
+  return greater_<LHS, RHS, Compare>(lhs, rhs, std::forward<Compare>(compare));
 }
 
 template <typename LHS, typename RHS,
           typename Compare = comparators::greater_equal_to>
 auto greater_eq(const LHS &lhs, const RHS &rhs,
-                const Compare &compare = comparators::greater_equal_to{}) {
-  return greater_eq_(lhs, rhs, compare);
+                Compare &&compare = comparators::greater_equal_to{}) {
+  return greater_eq_<LHS, RHS, Compare>(lhs, rhs,
+                                        std::forward<Compare>(compare));
 }
 
 template <typename LHS, typename RHS,
           typename Compare = comparators::lesser_than>
 auto lesser(const LHS &lhs, const RHS &rhs,
-            const Compare &compare = comparators::lesser_than{}) {
-  return lesser_(lhs, rhs, compare);
+            Compare &&compare = comparators::lesser_than{}) {
+  return lesser_<LHS, RHS, Compare>(lhs, rhs, std::forward<Compare>(compare));
 }
 
 template <typename LHS, typename RHS,
           typename Compare = comparators::lesser_equal_to>
 auto lesser_eq(const LHS &lhs, const RHS &rhs,
-               const Compare &compare = comparators::lesser_equal_to{}) {
-  return lesser_eq_(lhs, rhs, compare);
+               Compare &&compare = comparators::lesser_equal_to{}) {
+  return lesser_eq_<LHS, RHS, Compare>(lhs, rhs,
+                                       std::forward<Compare>(compare));
 }
 
 template <std::derived_from<expression> LHS, std::derived_from<expression> RHS>
 auto operator&&(const LHS &lhs, const RHS &rhs) {
-  return and_(lhs, rhs, comparators::and_{});
+  return and_<LHS, RHS, comparators::and_>(lhs, rhs, comparators::and_{});
 }
 
 template <std::derived_from<expression> LHS, std::derived_from<expression> RHS>
 auto operator||(const LHS &lhs, const RHS &rhs) {
-  return or_(lhs, rhs, comparators::or_{});
+  return or_<LHS, RHS, comparators::or_>(lhs, rhs, comparators::or_{});
 }
 
 template <typename Expr, typename Compare>
@@ -356,7 +391,7 @@ requires(std::is_copy_constructible_v<Expr>
              &&concepts::UniOperable<Expr, Compare>) struct not_
     : public expression {
 
-  not_(const Expr &ex, Compare &compare) : _expr(ex), _value(compare(ex)) {}
+  not_(const Expr &ex, Compare &&compare) : _expr(ex), _value(compare(ex)) {}
 
   constexpr operator bool() const { return _value; }
 
@@ -367,19 +402,18 @@ requires(std::is_copy_constructible_v<Expr>
 };
 
 template <std::derived_from<expression> Expr> auto operator!(const Expr &expr) {
-  return not_(expr, comparators::not_{});
+  return not_<Expr, comparators::not_>(expr, comparators::not_{});
 }
 
 template <typename Expr> auto not_of(const Expr &expr) {
-  return not_(expr, comparators::not_{});
+  return not_<Expr, comparators::not_>(expr, comparators::not_{});
 }
 } // namespace expressions
 
 namespace handlers {
 
 template <class T> concept Printable = requires(std::stringstream &os, T a) {
-  { os << a }
-  ->std::same_as<std::stringstream &>;
+  {os << a};
 };
 
 class printer {
@@ -394,17 +428,21 @@ public:
     return *this;
   }
 
-  template <std::ranges::range Container> auto &operator<<(Container &&c) {
-    *this << '{';
-    bool first = true;
-    for (const auto &ele : c) {
-      out << (first ? "" : ", ") << ele;
-    }
-    *this << '}';
+  /* template <std::ranges::range Container> auto &operator<<(Container &&c) {
+   */
+  /*   *this << '{'; */
+  /*   bool first = true; */
+  /*   for (const auto &ele : c) { */
+  /*     out << (first ? "" : ", ") << ele; */
+  /*   } */
+  /*   *this << '}'; */
+  /*   return *this; */
+  /* } */
+
+  template <Printable Element> auto &operator<<(Element &&ele) {
+    out << ele;
     return *this;
   }
-
-  template <Printable Element> auto &operator<<(Element &&ele) { out << ele; }
 
   template <typename Element> auto &operator<<(Element &&ele) {
     out << "[UNKNOWN]";
@@ -413,47 +451,52 @@ public:
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " == " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " == " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::not_equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " != " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " != " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::greater_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " > " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " > " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::greater_equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " >= " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " >= " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::lesser_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " < " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " < " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::lesser_equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " <= " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " <= " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::and_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " && " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " && " << ele.rhs() << ')';
   }
 
   template <typename LHS, typename RHS, typename Compare>
   auto &operator<<(expressions::or_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " || " << ele.rhs() << ')';
+    return *this << '(' << ele.lhs() << " || " << ele.rhs() << ')';
   }
 
   template <typename Expr, typename Compare>
   auto &operator<<(expressions::not_<Expr, Compare> ele) {
-    *this << "(!" << ele.value() << ')';
+    return *this << "(!" << ele.value() << ')';
+  }
+
+  auto& operator<<(bool b){
+    if(b) return *this << "true";
+    else return *this << "false";
   }
 
   auto str() const { return out.str(); }
@@ -486,9 +529,12 @@ public:
   template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
     assertion_failed++;
     if (!already_failed) {
+      already_failed = true;
       test_failed++;
     }
-    print_dash();
+    if(!dash_printed){
+      print_dash();
+    }
     printer << basename(test_stack.front().where.file_name()) << ':'
             << test_stack.front().where.line() << ':' << '\n'
             << printer.colors.warning
@@ -496,32 +542,10 @@ public:
     print_test_case_names();
     printer << basename(assertion.where.file_name()) << ':'
             << assertion.where.line() << ':';
-    printer << printer.colors.error << "ERROR: " << printer.colors.normal;
+    printer << printer.colors.failed << " ERROR: " << printer.colors.normal;
     printer << "[ ";
     printer << assertion.expr;
     printer << " ] is not correct\n";
-    print_dash();
-  }
-
-  template <typename Expr>
-  void on(events::assertion_exception<Expr> assertion) {
-    assertion_failed++;
-    if (!already_failed) {
-      test_failed++;
-    }
-    print_dash();
-    printer << basename(test_stack.front().where.file_name()) << ':'
-            << test_stack.front().where.line() << ':' << '\n'
-            << printer.colors.warning
-            << "TEST CASE:  " << printer.colors.normal;
-    print_test_case_names();
-    printer << basename(assertion.where.file_name()) << ':'
-            << assertion.where.line() << ':';
-    printer << printer.colors.error << "ERROR: " << printer.colors.normal;
-    printer << "[ ";
-    printer << assertion.expr;
-    printer << " ] failed with exception\n"
-            << "Exception : " << assertion.msg << '\n';
     print_dash();
   }
 
@@ -534,7 +558,12 @@ public:
     already_failed = false;
   }
 
-  void on(events::test_end test) { test_stack.pop_back(); }
+  void on(events::test_end test) { 
+    if(!already_failed){
+      test_passed++;
+    }
+    test_stack.pop_back(); 
+  }
 
   void on(events::test_skipped test) { test_skipped++; }
 
@@ -542,13 +571,13 @@ public:
 
   void on(events::summary) {
     printer << printer.colors.heading << "[cpptest] " << printer.colors.normal
-            << "Test Cases: " << test_failed + test_failed + test_skipped
-            << "\t|\t" << printer.colors.passed << test_passed
-            << " passed\t|\t ";
+            << "Test Cases: " << test_failed + test_passed + test_skipped
+            << " | " << printer.colors.passed << test_passed << " passed"
+            << printer.colors.normal << " | ";
     if (test_failed) {
       printer << printer.colors.failed;
     }
-    printer << test_failed << " failed\t|\t";
+    printer << test_failed << " failed | ";
     if (test_failed) {
       printer << printer.colors.normal;
     }
@@ -561,13 +590,13 @@ public:
     }
 
     printer << printer.colors.heading << "[cpptest] " << printer.colors.normal
-            << "Assertions: " << assertion_passed + assertion_failed << "\t|\t"
-            << printer.colors.passed << assertion_passed
-            << printer.colors.normal << "\t|\t";
+            << "Assertions: " << assertion_passed + assertion_failed << " | "
+            << printer.colors.passed << assertion_passed << " passed"
+            << printer.colors.normal << " | ";
     if (assertion_failed > 0) {
       printer << printer.colors.failed;
     }
-    printer << assertion_failed << '\n';
+    printer << assertion_failed << " failed\n";
     if (assertion_failed > 0) {
       printer << printer.colors.normal;
     }
@@ -577,22 +606,25 @@ public:
       printer << "Failed" << '\n';
       printer << printer.colors.normal;
     } else {
+      printer << printer.colors.passed;
       printer << "Passed" << '\n';
+      printer << printer.colors.failed;
     }
 
     std::cout << printer;
     std::cout.flush();
   }
 
-  template <typename Msg> void on(events::log<Msg> msg) {
-    printer << msg.msg ;
-  }
+  template <typename Msg> void on(events::log<Msg> msg) { printer << msg.msg; }
+
+  void on(events::exception ex) {}
 
 private:
   inline void print_dash() {
-    printer << printer.colors.warn;
+    dash_printed = true;
+    printer << printer.colors.warning;
     printer << "\n========================================================"
-               "=======================\n";
+               "=======================\n\n";
     printer << printer.colors.normal;
   }
 
@@ -603,13 +635,14 @@ private:
 
   inline void print_test_case_names() {
     for (auto name : test_stack) {
-      printer << name << "\n\t";
+      printer << name.name << "\n ";
     }
   }
 
 private:
   Printer printer;
   bool already_failed = false;
+  bool dash_printed = false;
   std::size_t test_level{};
   std::size_t assertion_failed{};
   std::size_t assertion_passed{};
@@ -632,20 +665,21 @@ public:
   void on(events::test &test) {
     if (test.test_tag.contains("disable")) {
       on(events::test_skipped{test.name, test.where});
-    }
-    if (test.test_tag.satisfies(tags)) {
-      on(events::test_begin{test.name, test.where});
-      on(events::test_run{test.name, test.where});
-      try {
-        test();
-      } catch (const std::exception &ex) {
-        on(events::exception{ex});
-      } catch (...) {
-        on(events::exception("Unknown Exception"));
-      }
-      on(events::test_end{test.name, test.where});
     } else {
-      on(events::test_skipped{test.name, test.where});
+      if (test.test_tag.satisfies(tags)) {
+        on(events::test_begin{test.name, test.where});
+        on(events::test_run{test.name, test.where});
+        try {
+          test();
+        } catch (const std::exception &ex) {
+          on(events::exception{ex});
+        } catch (...) {
+          on(events::exception("Unknown Exception"));
+        }
+        on(events::test_end{test.name, test.where});
+      } else {
+        on(events::test_skipped{test.name, test.where});
+      }
     }
   }
 
@@ -674,11 +708,6 @@ public:
   }
 
   template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
-    logger.on(assertion);
-  }
-
-  template <typename Expr>
-  void on(events::assertion_exception<Expr> assertion) {
     logger.on(assertion);
   }
 
@@ -728,13 +757,13 @@ inline void run(int argc, char **argv) {
   runner<default_config>.run(std::move(tags));
 }
 
-inline void run(const std::vector<std::string_view>& tags){
-  details::tag t {tags};
+inline void run(const std::vector<std::string_view> &tags) {
+  details::tag t{tags};
   runner<default_config>.run(std::move(t));
 }
 
-inline void run(std::vector<std::string_view>&& tags){
-  details::tag t {std::move(tags)};
+inline void run(std::vector<std::string_view> &&tags) {
+  details::tag t{std::move(tags)};
   runner<default_config>.run(std::move(t));
 }
 
@@ -800,15 +829,10 @@ struct test {
   }
 };
 
-template <std::invocable Func> struct _test_suite {
-
-  _test_suite(Func &&func) : func(std::move(func)) {}
-  _test_suite(const Func &func) : func(func) {}
-
-  void operator()() { func(); }
-
-private:
-  Func func;
+struct test_suite {
+  template <std::invocable Func> test_suite(Func &&func) {
+    on(events::test_suite{std::forward<Func>(func)});
+  }
 };
 
 constexpr auto subtest = [](const auto name) { return test(name); };
@@ -849,7 +873,19 @@ inline details::tag tag(const char *name) { return details::tag{{name}}; }
 
 using details::subtest;
 using details::test;
+using details::test_suite;
 using operators::operator""_test;
 using operators::operator+;
+using expressions::operator!;
+using expressions::operator&&;
+using expressions::operator||;
+using assertions::check;
+using assertions::require;
+using expressions::equals;
+using expressions::greater;
+using expressions::greater_eq;
+using expressions::lesser;
+using expressions::lesser_eq;
+using expressions::not_equals;
 
 } // namespace cpptest
