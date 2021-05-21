@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <source_location>
+#include <sstream>
 #include <string>
 #include <tuple>
 
@@ -47,362 +48,6 @@ struct not_equal_to {
   }
 };
 
-struct test_state {
-  bool _to_break = false;
-  bool _already_failed = false;
-  std::string name;
-
-  test_state(test_state &&state) = default;
-  test_state &operator=(const test_state &state) = default;
-  test_state(const test_state &state) = default;
-  test_state &operator=(test_state &&state) = default;
-  test_state() = default;
-};
-struct test_suite_state {
-
-  std::ostream &os;
-
-  unsigned int _total_tests = 0;
-  unsigned int _total_tests_failed = 0;
-  unsigned int _total_assertions = 0;
-  unsigned int _assertion_failed = 0;
-  unsigned int _assertion_passed = 0;
-  unsigned int _unhandled_exceptions = 0;
-
-  test_state _test_state;
-
-  test_suite_state(const test_suite_state &) = delete;
-  test_suite_state(test_suite_state &&) = delete;
-  test_suite_state &operator=(const test_suite_state &) = delete;
-  test_suite_state &operator=(test_suite_state &&) = delete;
-
-  bool to_break() { return _test_state._to_break; }
-
-  void assertion_passed() { _assertion_passed++; }
-
-  void assertion_added() { _total_assertions++; }
-
-  void assertion_failed(bool to_break, bool exception = false) {
-    if (to_break) {
-      _test_state._to_break = true;
-    }
-    _assertion_failed++;
-    if (!_test_state._already_failed) {
-      _test_state._already_failed = true;
-      _total_tests_failed++;
-    }
-    if (exception) {
-      _unhandled_exceptions++;
-    }
-  }
-
-  static test_suite_state &instance(std::ostream &os = std::cout) {
-    static test_suite_state state(os);
-    return state;
-  }
-
-private:
-  test_suite_state(std::ostream &os) : os(os) {}
-};
-
-namespace logging {
-
-namespace fs = std::filesystem;
-
-inline void log_error(const std::string_view name,
-                      const std::string_view message,
-                      const std::source_location &where) {
-  test_suite_state &state = test_suite_state::instance();
-  state.os << "\n\n\n"
-           << name << " " << message << ':' << '\n'
-           << "Test Case: " << state._test_state.name << '\n'
-           << fs::path(where.file_name()).filename().generic_string() << ":"
-           << where.line() << '\n';
-}
-
-inline void log_error(const std::string_view message,
-                      const std::source_location &where) {
-  test_suite_state &state = test_suite_state::instance();
-  state.os << "\n\n\n"
-           << message << ':' << '\n'
-           << "Test Case: " << state._test_state.name << '\n'
-           << fs::path(where.file_name()).filename().generic_string() << ":"
-           << where.line() << '\n';
-}
-
-template <Printable Expected, Printable Actual>
-void log_error(const std::string_view name, const std::string_view message,
-               Expected &&expected, Actual &&actual,
-               const std::source_location &where) {
-  test_suite_state &state = test_suite_state::instance();
-  state.os << "\n\n\n"
-           << name << " " << message << ':' << '\n'
-           << "Test Case: " << state._test_state.name << '\n'
-           << fs::path(where.file_name()).filename().generic_string() << ":"
-           << where.line() << '\n'
-           << "Expected: " << expected << '\n'
-           << "Actual: " << actual << '\n';
-}
-
-template <typename Expected, typename Actual>
-void log(const std::string_view name, const std::string_view message,
-         Expected &&exptected, Actual &&actual,
-         const std::source_location &where) {
-  if constexpr (Printable<Expected> && Printable<Actual>) {
-    log_error(name, message, exptected, actual, where);
-  } else {
-    log_error(name, message, where);
-  }
-}
-
-}; // namespace logging
-
-namespace assertions {
-
-template <typename Expected, typename Actual>
-inline void assert_boilerplate(const bool to_break, const bool expr,
-                               Expected &&expected, Actual &&actual,
-                               std::string_view name,
-                               const std::source_location &where) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    if (!expr) {
-      state.assertion_failed(to_break);
-      logging::log(name, "Failed", std::forward<Expected>(expected),
-                   std::forward<Actual>(actual), where);
-    } else {
-      state.assertion_passed();
-    }
-    return;
-  } catch (const std::exception &ex) {
-    std::string msg = "Exception caught with message ";
-    msg += ex.what();
-    logging::log(name, msg, expected, actual, where);
-  } catch (...) {
-    logging::log(name, "Exception caught", expected, actual, where);
-  }
-  state.assertion_failed(to_break, true);
-}
-
-inline void _assert(const bool to_break, const bool expr,
-                    const std::source_location &where) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    if (!expr) {
-      state.assertion_failed(to_break);
-      logging::log_error("Failed", where);
-    } else {
-      state.assertion_passed();
-    }
-    return;
-  } catch (const std::exception &ex) {
-    std::string msg = "Uncaught Exception with message ";
-    msg += ex.what();
-    logging::log_error(msg, where);
-  } catch (...) {
-    logging::log_error("Uncaught Exception", where);
-  }
-  state.assertion_failed(to_break, true);
-}
-
-inline void _assert_false(const bool to_break, const bool expr,
-                          const std::source_location &where) {
-  _assert(to_break, !expr, where);
-}
-
-inline void assert_throws(const bool to_break, const std::invocable auto lambda,
-                          const std::source_location &where) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    lambda();
-  } catch (...) {
-    state.assertion_passed();
-    return;
-  }
-  state.assertion_failed(to_break);
-  logging::log_error("Required Throws", where);
-}
-
-inline void assert_no_throws(const bool to_break,
-                             const std::invocable auto lambda,
-                             const std::source_location &where) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    lambda();
-    state.assertion_passed();
-    return;
-  } catch (...) {
-  }
-  state.assertion_failed(to_break);
-  logging::log_error("Required NoThrow", where);
-}
-
-template <typename ExceptionType>
-void assert_throws_with(
-    const bool to_break, std::invocable auto &&lambda,
-    const std::source_location &where = std::source_location::current()) {
-  auto &state = test_suite_state::instance();
-  state.assertion_added();
-  if (to_break) {
-    if (state.to_break()) {
-      return;
-    }
-  }
-  try {
-    lambda();
-  } catch (ExceptionType &&ex) {
-    return;
-    state.assertion_passed();
-  } catch (...) {
-  }
-  state.assertion_failed(to_break);
-  logging::log_error("Didn't throw required exception", where);
-}
-
-template <typename Expected, typename Actual, typename Compare>
-requires(Comparable<Expected, Actual, Compare>) inline void assert_equals(
-    const bool to_break, Expected &&expected, Actual &&actual,
-    Compare &&compare, const std::source_location &where) {
-  assert_boilerplate(to_break, compare(expected, actual),
-                     std::forward<Expected>(expected),
-                     std::forward<Actual>(actual),
-                     to_break ? "[require_equals]" : "[check_equals]", where);
-}
-
-template <typename Expected, typename Actual, typename Compare>
-requires(Comparable<Expected, Actual, Compare>) inline void assert_not_equals(
-    bool to_break, Expected &&expected, Actual &&actual, Compare &&compare,
-    const std::source_location &where) {
-  assert_boilerplate(
-      to_break, compare(expected, actual), std::forward<Expected>(expected),
-      std::forward<Actual>(actual),
-      to_break ? "[require_not_equals]" : "[check_not_equals]", where);
-}
-
-inline void
-require(const bool expr,
-        const std::source_location &where = std::source_location::current()) {
-  _assert(true, expr, where);
-}
-
-inline void
-check(const bool expr,
-      const std::source_location &where = std::source_location::current()) {
-  _assert(false, expr, where);
-}
-
-inline void require_false(
-    const bool expr,
-    const std::source_location &where = std::source_location::current()) {
-  _assert_false(true, expr, where);
-}
-
-inline void check_false(const bool expr, const std::source_location &where =
-                                             std::source_location::current()) {
-  _assert_false(false, expr, where);
-}
-
-template <std::invocable Lambda>
-inline void require_throws(
-    Lambda &&lambda,
-    const std::source_location &where = std::source_location::current()) {
-  assert_throws(true, std::forward<Lambda>(lambda), where);
-}
-
-template <std::invocable Lambda>
-inline void check_throws(Lambda &&lambda, const std::source_location &where =
-                                              std::source_location::current()) {
-  assert_throws(false, std::forward<Lambda>(lambda), where);
-}
-
-template <std::invocable Lambda>
-inline void require_no_throws(
-    Lambda &&lambda,
-    const std::source_location &where = std::source_location::current()) {
-  assert_no_throws(true, std::forward<Lambda>(lambda), where);
-}
-
-template <std::invocable Lambda>
-inline void check_no_throws(
-    Lambda &&lambda,
-    const std::source_location &where = std::source_location::current()) {
-  assert_no_throws(false, std::forward<Lambda>(lambda), where);
-}
-
-template <typename ExceptionType, std::invocable Lambda>
-inline void require_throws_with(
-    Lambda &&lambda,
-    const std::source_location &where = std::source_location::current()) {
-  assert_throws_with(true, std::forward<Lambda>(lambda), where);
-}
-
-template <typename ExceptionType, std::invocable Lambda>
-inline void check_throws_with(
-    Lambda &&lambda,
-    const std::source_location &where = std::source_location::current()) {
-  assert_throws_with(false, std::forward<Lambda>(lambda), where);
-}
-
-template <typename Expected, typename Actual, typename Compare = equal_to>
-inline void require_equals(
-    Expected &&expected, Actual &&actual, Compare &&compare = equal_to(),
-    const std::source_location &where = std::source_location::current()) {
-  assert_equals(true, std::forward<Expected>(expected),
-                std::forward<Actual>(actual), std::forward<Compare>(compare),
-                where);
-}
-
-template <typename Expected, typename Actual, typename Compare = equal_to>
-inline void check_equals(
-    Expected &&expected, Actual &&actual, Compare &&compare = equal_to(),
-    const std::source_location &where = std::source_location::current()) {
-  assert_equals(false, std::forward<Expected>(expected),
-                std::forward<Actual>(actual), std::forward<Compare>(compare),
-                where);
-}
-
-template <typename Expected, typename Actual, typename Compare = not_equal_to>
-inline auto require_not_equals(
-    Expected &&expected, Actual &&actual, Compare &&compare = not_equal_to(),
-    const std::source_location &where = std::source_location::current()) {
-  assert_not_equals(true, std::forward<Expected>(expected),
-                    std::forward<Actual>(actual),
-                    std::forward<Compare>(compare), where);
-}
-template <typename Expected, typename Actual, typename Compare = not_equal_to>
-inline auto check_not_equals(
-    Expected &&expected, Actual &&actual, Compare &&compare = not_equal_to(),
-    const std::source_location &where = std::source_location::current()) {
-  assert_not_equals(false, std::forward<Expected>(expected),
-                    std::forward<Actual>(actual),
-                    std::forward<Compare>(compare), where);
-}
-}; // namespace assertions
-
 namespace details {
 struct tag {
   std::vector<std::string_view> tags;
@@ -438,70 +83,65 @@ struct test_suite {
 };
 
 struct test {
-  std::ostream &os;
   details::tag test_tag;
   std::function<void()> func;
   std::string_view name;
-  test_suite_state &state;
-  test_state _test_state;
+  std::source_location where;
 
   template <std::invocable Func, std::same_as<details::tag> Tag>
   test(const std::string_view test_name, Tag &&test_tag, Func &&func,
-       std::ostream &os = std::cout)
-      : os(os), func(std::forward<Func>(func)),
-        state(test_suite_state::instance(os)), name(test_name),
-        test_tag(std::forward<Tag>(test_tag)) {
-    _test_state.name = name;
-    state._total_tests++;
-  }
+       const std::source_location &where)
+      : func(std::forward<Func>(func)), name(test_name),
+        test_tag(std::forward<Tag>(test_tag)), where(where) {}
 
   void operator()() const { func(); }
 };
 
 struct test_skipped {
   std::string_view name;
+  std::source_location where;
 };
 
 struct test_begin {
   std::string_view name;
+  std::source_location where;
 };
 
 struct test_run {
   std::string_view test;
+  std::source_location where;
 };
 
 struct test_end {
   std::string_view name;
+  std::source_location where;
 };
 
 struct summary {};
 
 template <typename Expr> struct assertion_added {
   Expr expr;
-  std::source_location location;
+  std::source_location where;
 };
 
 template <typename Expr> struct assertion_failed {
   Expr expr;
-  std::source_location location;
+  std::source_location where;
 };
 
 template <typename Expr> struct assertion_passed {
   Expr expr;
-  std::source_location location;
+  std::source_location where;
 };
 
 template <typename Msg> struct log { Msg msg; };
 
-struct exception{
-  const char* msg;
-  exception(const char* msg) : msg(msg){}
-  exception(const std::exception& ex) : msg(ex.what()){}
-  const char* what(){
-    return msg;
-  }
+struct exception {
+  const char *msg;
+  exception(const char *msg) : msg(msg) {}
+  exception(const std::exception &ex) : msg(ex.what()) {}
+  const char *what() { return msg; }
 };
-
 
 }; // namespace events
 
@@ -523,11 +163,11 @@ public:
 
   void on(events::test &test) {
     if (test.test_tag.contains("disable")) {
-      on(events::test_skipped{test.name});
+      on(events::test_skipped{test.name, test.where});
     }
     if (test.test_tag.satisfies(tags)) {
-      on(events::test_begin{test.name});
-      on(events::test_run{test.name});
+      on(events::test_begin{test.name, test.where});
+      on(events::test_run{test.name, test.where});
       try {
         test();
       } catch (const std::exception &ex) {
@@ -535,34 +175,35 @@ public:
       } catch (...) {
         on(events::exception("Unknown Exception"));
       }
-      on(events::test_end{test.name});
+      on(events::test_end{test.name, test.where});
     } else {
-      on(events::test_skipped{test.name});
+      on(events::test_skipped{test.name, test.where});
     }
   }
 
-  void on(events::exception ex){
+  void on(events::exception ex) {
     current_test_failed = true;
     logger.on(ex);
   }
 
-  void on(events::test_skipped test){
+  void on(events::test_skipped test) { logger.on(test); }
+
+  void on(events::test_begin test) { logger.on(test); }
+
+  void on(events::test_end test) { logger.on(test); }
+
+  void on(events::test_run test) { logger.on(test); }
+
+  template <typename Expr> void on(events::assertion_added<Expr> test) {
     logger.on(test);
   }
 
-  void on(events::test_begin test){
-    if (!(test_level++)) {
-      logger.on(test);
-    }
+  template <typename Expr> void on(events::assertion_failed<Expr> test) {
+    current_test_failed = true;
+    logger.on(test);
   }
 
-  void on(events::test_end test){
-    if (!(--test_level)){
-      logger.on(test);
-    }
-  }
-
-  void on(events::test_run test){
+  template <typename Expr> void on(events::assertion_passed<Expr> test) {
     logger.on(test);
   }
 
@@ -582,10 +223,127 @@ public:
 
 private:
   Logger logger;
-  std::size_t test_level{};
   std::vector<std::function<void()>> test_suites;
   details::tag tags;
   bool current_test_failed{false};
+};
+
+template <typename Printer> class logger {
+  logger() = default;
+  logger(const Printer &p) : printer(p) {}
+  logger(Printer &&p) : printer(std::move(p)) {}
+
+  template <typename Expr> void on(events::assertion_added<Expr>) {
+    total_assertions++;
+  }
+
+  template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
+    assertion_failed++;
+    print_dash();
+    printer << basename(test_stack.front().where.file_name()) << ':'
+            << test_stack.front().where.line() << ':' << '\n'
+            << printer.colors.warning
+            << "TEST CASE:  " << printer.colors.normal;
+    print_test_case_names();
+    printer << basename(assertion.where.file_name()) << ':'
+            << assertion.where.line() << ':';
+    printer << printer.colors.error << "ERROR: " << printer.colors.normal;
+    printer << "[ ";
+    printer << assertion.expr;
+    printer << " ] is not correct\n";
+    print_dash();
+  }
+
+  template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
+    assertion_passed++;
+  }
+
+  template <typename Expr> void on(events::test_begin test) {
+    test_stack.push_back(test);
+  }
+
+  template <typename Expr> void on(events::test_end test) {
+    test_stack.pop_back();
+  }
+
+  template <typename Expr> void on(events::test_skipped test) {
+    test_skipped++;
+  }
+
+  void on(events::summary) {
+    printer << printer.colors.heading << "[cpptest] " << printer.colors.normal
+            << "Test Cases: " << test_failed + test_failed + test_skipped
+            << "\t|\t" << printer.colors.passed << test_passed
+            << " passed\t|\t ";
+    if (test_failed) {
+      printer << printer.colors.failed;
+    }
+    printer << test_failed << " failed\t|\t";
+    if (test_failed) {
+      printer << printer.colors.normal;
+    }
+    if (test_skipped) {
+      printer << printer.colors.warning;
+    }
+    printer << test_skipped << " skipped\n";
+    if (test_skipped) {
+      printer << printer.colors.normal;
+    }
+
+    printer << printer.colors.heading << "[cpptest] " << printer.colors.normal
+            << "Assertions: " << assertion_passed + assertion_failed << "\t|\t"
+            << printer.colors.passed << assertion_passed
+            << printer.colors.normal << "\t|\t";
+    if (assertion_failed > 0) {
+      printer << printer.colors.failed;
+    }
+    printer << assertion_failed << '\n';
+    if (assertion_failed > 0) {
+      printer << printer.colors.normal;
+    }
+    printer << "Status : ";
+    if (test_failed > 0) {
+      printer << printer.colors.failed;
+      printer << "Failed" << '\n';
+      printer << printer.colors.normal;
+    } else {
+      printer << "Passed" << '\n';
+    }
+
+    std::cout << printer;
+    std::cout.flush();
+  }
+
+private:
+  inline void print_dash() {
+    printer << printer.colors.warn;
+    printer << "\n========================================================"
+               "=======================\n";
+    printer << printer.colors.normal;
+  }
+
+  inline auto basename(const char *file_name) {
+    namespace fs = std::filesystem;
+    return fs::path(file_name).filename().generic_string();
+  }
+
+  inline void print_test_case_names() {
+    for (auto name : test_stack) {
+      printer << name << "\n\t";
+    }
+  }
+
+private:
+  Printer printer;
+  std::size_t test_level{};
+  std::size_t assertion_failed{};
+  std::size_t assertion_passed{};
+  std::size_t total_assertions{};
+  std::size_t test_failed{};
+  std::size_t test_passed{};
+  std::size_t test_skipped{};
+  std::stringstream buffer;
+  std::vector<events::test_begin> test_stack;
 };
 
 }; // namespace handlers
@@ -597,16 +355,23 @@ inline void on(...) {}
 struct test {
   std::string_view name;
   tag test_tag;
+  std::source_location where;
 
-  test(const char *name) : name(name) {}
+  test(const char *name,
+       const std::source_location &where = std::source_location::current())
+      : name(name), where(where) {}
 
-  test(std::string_view name) : name(name) {}
+  test(std::string_view name,
+       const std::source_location &where = std::source_location::current())
+      : name(name), where(where) {}
 
-  test(const char *name, decltype(sizeof("")) size) : name{name, size} {}
+  test(const char *name, decltype(sizeof("")) size,
+       const std::source_location &where = std::source_location::current())
+      : name{name, size}, where(where) {}
 
   template <std::invocable Func> void operator=(Func &&func) {
-    auto current_test_case =
-        events::test(name, std::move(test_tag), std::forward<Func>(func));
+    auto current_test_case = events::test(name, std::move(test_tag),
+                                          std::forward<Func>(func), where);
     on(current_test_case);
   }
 };
