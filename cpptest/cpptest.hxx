@@ -383,6 +383,7 @@ template <class T> concept Printable = requires(std::stringstream &os, T a) {
 };
 
 class printer {
+public:
   auto &operator<<(std::string_view str) {
     out << str;
     return *this;
@@ -407,6 +408,7 @@ class printer {
 
   template <typename Element> auto &operator<<(Element &&ele) {
     out << "[UNKNOWN]";
+    return *this;
   }
 
   template <typename LHS, typename RHS, typename Compare>
@@ -454,10 +456,26 @@ class printer {
     *this << "(!" << ele.value() << ')';
   }
 
+  auto str() const { return out.str(); }
+
+public:
+  struct color_set {
+    std::string_view heading = "\x1b[34m";
+    std::string_view warning = "\x1b[33m";
+    std::string_view failed = "\033[31m";
+    std::string_view passed = "\033[32m";
+    std::string_view normal = "\033[0m";
+  };
+
+  color_set colors;
+
+  friend std::ostream &operator<<(std::ostream &os, const printer &pr) {
+    return os << pr.out.str();
+  }
+
 private:
   std::stringstream out{};
 };
-
 
 template <typename Printer = printer> class logger {
 public:
@@ -567,7 +585,7 @@ public:
   }
 
   template <typename Msg> void on(events::log<Msg> msg) {
-    printer << msg << '\n';
+    printer << msg.msg ;
   }
 
 private:
@@ -664,18 +682,28 @@ public:
     logger.on(assertion);
   }
 
-  void run(std::vector<std::string_view> tags) {
+  void run(const details::tag &tags) {
     this->tags = tags;
     for (auto &suite : test_suites) {
       suite();
     }
   }
 
-  void run(std::vector<std::string_view> &&tags) {
+  void run(details::tag &&tags) {
     this->tags = std::move(tags);
     for (auto &suite : test_suites) {
       suite();
     }
+  }
+
+  void run() {
+    for (auto &suite : test_suites) {
+      suite();
+    }
+  }
+
+  inline constexpr bool current_test_passed() const {
+    return !current_test_failed;
   }
 
 private:
@@ -685,13 +713,38 @@ private:
   bool current_test_failed{false};
 };
 
-
-
 }; // namespace handlers
 
+struct default_config {};
+
+template <typename = default_config>
+auto runner = handlers::test_event_handler<>{};
+
+inline void run() { runner<default_config>.run(); }
+
+inline void run(int argc, char **argv) {
+  // TODO: generate tags from arguments
+  details::tag tags;
+  runner<default_config>.run(std::move(tags));
+}
+
+inline void run(const std::vector<std::string_view>& tags){
+  details::tag t {tags};
+  runner<default_config>.run(std::move(t));
+}
+
+inline void run(std::vector<std::string_view>&& tags){
+  details::tag t {std::move(tags)};
+  runner<default_config>.run(std::move(t));
+}
+
 namespace details {
-inline void on(...) {}
-inline bool current_test_passed();
+template <typename Event> inline void on(Event &&event) {
+  runner<default_config>.on(event);
+}
+inline bool current_test_passed() {
+  return runner<default_config>.current_test_passed();
+}
 } // namespace details
 
 namespace assertions {
