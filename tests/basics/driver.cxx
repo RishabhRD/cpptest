@@ -48,5 +48,29 @@ disable +
 
 };
 
+test_suite s2 = []{
+
+  // 2 3 4 5 10 11 should be output
+  test("require_tests") = []{
+    check(equals(1, 2));
+    subtest("sub 1") = []{
+      check(equals(1, 3));
+      subtest("sub 2") = []{
+        check(equals(1, 4));
+        require(equals(1, 5));
+        check(equals(1, 6));
+        subtest("sub 3") = []{
+          check(equals(1, 7));
+          require(equals(1, 8));
+        };
+        check(equals(1, 9));
+      };
+      check(equals(1, 10));
+    };
+    check(equals(1, 11));
+  };
+
+};
+
 
 int main(int argc, char **argv) { cpptest::run(); }

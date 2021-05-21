@@ -14,6 +14,11 @@
 namespace cpptest {
 
 namespace concepts {
+
+template <class T> concept Printable = requires(std::stringstream &os, T a) {
+  {os << a};
+};
+
 template <typename Expected, typename Actual, typename Compare>
 concept Comparable = requires(Expected &&ex, Actual &&ac, Compare &&comp) {
   { comp(ex, ac) }
@@ -155,17 +160,17 @@ struct test_end {
 
 struct summary {};
 
-template <typename Expr> struct assertion_added {
-  Expr expr;
-  std::source_location where;
-};
-
 template <typename Expr> struct assertion_failed {
   Expr expr;
   std::source_location where;
 };
 
 template <typename Expr> struct assertion_passed {
+  Expr expr;
+  std::source_location where;
+};
+
+template <typename Expr> struct fatal_assertion{
   Expr expr;
   std::source_location where;
 };
@@ -475,10 +480,6 @@ template <std::invocable Func> auto no_throws(const Func &func) {
 
 namespace handlers {
 
-template <class T> concept Printable = requires(std::stringstream &os, T a) {
-  {os << a};
-};
-
 class printer {
 
 public:
@@ -492,7 +493,7 @@ public:
     return *this;
   }
 
-  template <Printable Element> auto &operator<<(Element &&ele) {
+  template <concepts::Printable Element> auto &operator<<(Element &&ele) {
     out << ele;
     return *this;
   }
@@ -592,11 +593,10 @@ private:
 
 template <typename Printer = printer> class logger {
 public:
-  template <typename Expr> void on(events::assertion_added<Expr>) {
-    total_assertions++;
-  }
-
   template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
+    if(!_assertion_should_continue){
+      return;
+    }
     assertion_failed++;
     if (!already_failed) {
       already_failed = true;
@@ -619,23 +619,53 @@ public:
     print_dash();
   }
 
+  template <typename Expr> void on(events::fatal_assertion<Expr> assertion) {
+    if(!_assertion_should_continue){
+      return;
+    }
+    on(events::assertion_failed{assertion.expr, assertion.where});
+    _assertion_should_continue = false;
+    fatal_assertion_level = test_level;
+  }
+
   template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
+    if(!_assertion_should_continue){
+      return;
+    }
     assertion_passed++;
   }
 
   void on(events::test_begin test) {
+    test_level++;
+    if(!_assertion_should_continue){
+      return;
+    }
     test_stack.push_back(test);
     already_failed = false;
   }
 
   void on(events::test_end test) {
+    if(!_assertion_should_continue){
+      if(test_level == fatal_assertion_level){
+        _assertion_should_continue = true;
+        test_level--;
+      }else{
+        test_level--;
+        return;
+      }
+    }
     if (!already_failed) {
       test_passed++;
     }
     test_stack.pop_back();
   }
 
-  void on(events::test_skipped test) { test_skipped++; }
+  void on(events::test_skipped test) {
+    if(!_assertion_should_continue){
+      return;
+    }
+    test_skipped++; 
+  }
 
   void on(events::test_run) {}
 
@@ -713,6 +743,8 @@ private:
   Printer printer;
   bool already_failed = false;
   bool dash_printed = false;
+  bool _assertion_should_continue = true;
+  std::size_t fatal_assertion_level{};
   std::size_t test_level{};
   std::size_t assertion_failed{};
   std::size_t assertion_passed{};
@@ -754,7 +786,6 @@ public:
   }
 
   void on(events::exception ex) {
-    current_test_failed = true;
     logger.on(ex);
   }
 
@@ -768,16 +799,15 @@ public:
 
   template <typename Msg> void on(events::log<Msg> msg) { logger.on(msg); }
 
-  template <typename Expr> void on(events::assertion_added<Expr> assertion) {
-    logger.on(assertion);
-  }
-
   template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
-    current_test_failed = true;
     logger.on(assertion);
   }
 
   template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
+    logger.on(assertion);
+  }
+
+  template <typename Expr> void on(events::fatal_assertion<Expr> assertion) {
     logger.on(assertion);
   }
 
@@ -801,15 +831,10 @@ public:
     }
   }
 
-  inline constexpr bool current_test_passed() const {
-    return !current_test_failed;
-  }
-
 private:
   Logger logger;
   std::vector<std::function<void()>> test_suites;
   details::tag tags;
-  bool current_test_failed{false};
 };
 
 }; // namespace handlers
@@ -841,9 +866,7 @@ namespace details {
 template <typename Event> inline void on(Event &&event) {
   runner<default_config>.on(event);
 }
-inline bool current_test_passed() {
-  return runner<default_config>.current_test_passed();
-}
+
 } // namespace details
 
 namespace assertions {
@@ -851,13 +874,10 @@ template <typename Expr>
 requires std::is_convertible_v<Expr, bool> void
 require(Expr &&expr,
         const std::source_location &where = std::source_location::current()) {
-  if (!details::current_test_passed()) {
-    return;
-  }
   if (expr) {
     details::on(events::assertion_passed{expr, where});
   } else {
-    details::on(events::assertion_failed{expr, where});
+    details::on(events::fatal_assertion{expr, where});
   }
 }
 
