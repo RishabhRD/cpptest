@@ -178,7 +178,202 @@ struct exception {
   const char *what() { return msg; }
 };
 
-}; // namespace events
+} // namespace events
+
+namespace comparators {
+struct equal_to {
+  template <typename T, typename U>
+  requires concepts::EqualComparable<T, U> bool operator()(const T &t,
+                                                           const U &u) {
+    return t == u;
+  }
+};
+
+struct not_equal_to {
+  template <typename T, typename U>
+  requires concepts::InequalComparable<T, U> bool operator()(const T &t,
+                                                             const U &u) {
+    return t != u;
+  }
+};
+
+struct greater_than {
+  template <typename T, typename U>
+  requires concepts::GreaterComparable<T, U> bool operator()(const T &t,
+                                                             const U &u) {
+    return t > u;
+  }
+};
+
+struct greater_equal_to {
+  template <typename T, typename U>
+  requires concepts::GreaterEqualComparable<T, U> bool operator()(const T &t,
+                                                                  const U &u) {
+    return t >= u;
+  }
+};
+
+struct lesser_than {
+  template <typename T, typename U>
+  requires concepts::LesserComparable<T, U> bool operator()(const T &t,
+                                                            const U &u) {
+    return t < u;
+  }
+};
+
+struct lesser_equal_to {
+  template <typename T, typename U>
+  requires concepts::LesserEqualComparable<T, U> bool operator()(const T &t,
+                                                                 const U &u) {
+    return t <= u;
+  }
+};
+
+struct and_ {
+  template <typename T, typename U>
+  requires concepts::AndComparable<T, U> bool operator()(const T &t,
+                                                         const U &u) {
+    return bool(t) && bool(u);
+  }
+};
+
+struct or_ {
+  template <typename T, typename U>
+  requires concepts::OrComparable<T, U> bool operator()(const T &t,
+                                                        const U &u) {
+    return bool(t) || bool(u);
+  }
+};
+
+struct not_ {
+  template <typename T>
+  requires concepts::NotComparable<T> bool operator()(const T &t) {
+    return !(bool(t));
+  }
+};
+} // namespace comparators
+
+namespace expressions {
+struct expression {};
+
+template <typename LHS, typename RHS, typename Compare>
+requires(
+    concepts::Comparable<LHS, RHS, Compare> &&std::is_copy_constructible_v<LHS>
+        &&std::is_copy_constructible_v<RHS>) struct comparator
+    : public expression {
+  comparator(const LHS &lhs, const RHS &rhs, Compare &compare)
+      : _lhs(lhs), _rhs(rhs), _value(compare(lhs, rhs)) {}
+
+  constexpr operator bool() const { return _value; }
+
+  constexpr auto lhs() const { return _lhs; }
+
+  constexpr auto rhs() const { return _rhs; }
+
+private:
+  const bool _value;
+  const LHS _lhs;
+  const RHS _rhs;
+};
+
+template <typename LHS, typename RHS, typename Compare>
+struct equals_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct not_equals_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct greater_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct greater_equals_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct lesser_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct lesser_equals_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct and_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare>
+struct or_ : public comparator<LHS, RHS, Compare> {};
+
+template <typename LHS, typename RHS, typename Compare = comparators::equal_to>
+auto equals(const LHS &lhs, const RHS &rhs,
+            const Compare &compare = comparators::equal_to{}) {
+  return equals_(lhs, rhs, compare);
+}
+
+template <typename LHS, typename RHS,
+          typename Compare = comparators::not_equal_to>
+auto not_equals(const LHS &lhs, const RHS &rhs,
+                const Compare &compare = comparators::not_equal_to{}) {
+  return not_equals_(lhs, rhs, compare);
+}
+
+template <typename LHS, typename RHS,
+          typename Compare = comparators::greater_than>
+auto greater(const LHS &lhs, const RHS &rhs,
+             const Compare &compare = comparators::greater_than{}) {
+  return greater_(lhs, rhs, compare);
+}
+
+template <typename LHS, typename RHS,
+          typename Compare = comparators::greater_equal_to>
+auto greater_eq(const LHS &lhs, const RHS &rhs,
+                const Compare &compare = comparators::greater_equal_to{}) {
+  return greater_eq_(lhs, rhs, compare);
+}
+
+template <typename LHS, typename RHS,
+          typename Compare = comparators::lesser_than>
+auto lesser(const LHS &lhs, const RHS &rhs,
+            const Compare &compare = comparators::lesser_than{}) {
+  return lesser_(lhs, rhs, compare);
+}
+
+template <typename LHS, typename RHS,
+          typename Compare = comparators::lesser_equal_to>
+auto lesser_eq(const LHS &lhs, const RHS &rhs,
+               const Compare &compare = comparators::lesser_equal_to{}) {
+  return lesser_eq_(lhs, rhs, compare);
+}
+
+template <std::derived_from<expression> LHS, std::derived_from<expression> RHS>
+auto operator&&(const LHS &lhs, const RHS &rhs) {
+  return and_(lhs, rhs, comparators::and_{});
+}
+
+template <std::derived_from<expression> LHS, std::derived_from<expression> RHS>
+auto operator||(const LHS &lhs, const RHS &rhs) {
+  return or_(lhs, rhs, comparators::or_{});
+}
+
+template <typename Expr, typename Compare>
+requires(std::is_copy_constructible_v<Expr>
+             &&concepts::UniOperable<Expr, Compare>) struct not_
+    : public expression {
+
+  not_(const Expr &ex, Compare &compare) : _expr(ex), _value(compare(ex)) {}
+
+  constexpr operator bool() const { return _value; }
+
+  constexpr auto value() const { return _expr; }
+
+  Expr _expr;
+  bool _value;
+};
+
+template <std::derived_from<expression> Expr> auto operator!(const Expr &expr) {
+  return not_(expr, comparators::not_{});
+}
+
+template <typename Expr> auto not_of(const Expr &expr) {
+  return not_(expr, comparators::not_{});
+}
+} // namespace expressions
 
 namespace handlers {
 
@@ -446,6 +641,55 @@ class printer {
 
   template <Printable Element> auto &operator<<(Element &&ele) { out << ele; }
 
+  template <typename Element> auto &operator<<(Element &&ele) {
+    out << "[UNKNOWN]";
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " == " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::not_equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " != " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::greater_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " > " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::greater_equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " >= " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::lesser_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " < " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::lesser_equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " <= " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::and_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " && " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::or_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " || " << ele.rhs() << ')';
+  }
+
+  template <typename Expr, typename Compare>
+  auto &operator<<(expressions::not_<Expr, Compare> ele) {
+    *this << "(!" << ele.value() << ')';
+  }
+
 private:
   std::stringstream out{};
 };
@@ -457,79 +701,6 @@ inline void on(...) {}
 inline bool current_test_passed();
 } // namespace details
 
-namespace comparators {
-struct equal_to {
-  template <typename T, typename U>
-  requires concepts::EqualComparable<T, U> bool operator()(const T &t,
-                                                           const U &u) {
-    return t == u;
-  }
-};
-
-struct not_equal_to {
-  template <typename T, typename U>
-  requires concepts::InequalComparable<T, U> bool operator()(const T &t,
-                                                             const U &u) {
-    return t != u;
-  }
-};
-
-struct greater_than {
-  template <typename T, typename U>
-  requires concepts::GreaterComparable<T, U> bool operator()(const T &t,
-                                                             const U &u) {
-    return t > u;
-  }
-};
-
-struct greater_equal_to {
-  template <typename T, typename U>
-  requires concepts::GreaterEqualComparable<T, U> bool operator()(const T &t,
-                                                                  const U &u) {
-    return t >= u;
-  }
-};
-
-struct lesser_than {
-  template <typename T, typename U>
-  requires concepts::LesserComparable<T, U> bool operator()(const T &t,
-                                                            const U &u) {
-    return t < u;
-  }
-};
-
-struct lesser_equal_to {
-  template <typename T, typename U>
-  requires concepts::LesserEqualComparable<T, U> bool operator()(const T &t,
-                                                                 const U &u) {
-    return t <= u;
-  }
-};
-
-struct and_ {
-  template <typename T, typename U>
-  requires concepts::AndComparable<T, U> bool operator()(const T &t,
-                                                         const U &u) {
-    return bool(t) && bool(u);
-  }
-};
-
-struct or_ {
-  template <typename T, typename U>
-  requires concepts::OrComparable<T, U> bool operator()(const T &t,
-                                                        const U &u) {
-    return bool(t) || bool(u);
-  }
-};
-
-struct not_ {
-  template <typename T>
-  requires concepts::NotComparable<T> bool operator()(const T &t) {
-    return !(bool(t));
-  }
-};
-} // namespace comparators
-
 namespace assertions {
 template <typename Expr>
 requires std::is_convertible_v<Expr, bool> void
@@ -539,9 +710,9 @@ require(Expr &&expr,
     return;
   }
   if (expr) {
-    on(events::assertion_passed{expr, where});
+    details::on(events::assertion_passed{expr, where});
   } else {
-    on(events::assertion_failed{expr, where});
+    details::on(events::assertion_failed{expr, where});
   }
 }
 
@@ -550,107 +721,11 @@ requires std::is_convertible_v<Expr, bool> void
 check(Expr &&expr,
       const std::source_location &where = std::source_location::current()) {
   if (expr) {
-    on(events::assertion_passed{expr, where});
+    details::on(events::assertion_passed{expr, where});
   } else {
-    on(events::assertion_failed{expr, where});
+    details::on(events::assertion_failed{expr, where});
   }
 }
-
-struct expression {};
-
-template <typename LHS, typename RHS, typename Compare>
-requires(
-    concepts::Comparable<LHS, RHS, Compare> &&std::is_copy_constructible_v<LHS>
-        &&std::is_copy_constructible_v<RHS>) struct comparator
-    : public expression {
-  comparator(const LHS &lhs, const RHS &rhs, Compare &compare)
-      : _lhs(lhs), _rhs(rhs), _value(compare(lhs, rhs)) {}
-
-  constexpr operator bool() const { return _value; }
-
-  constexpr auto lhs() const { return _lhs; }
-
-  constexpr auto rhs() const { return _rhs; }
-
-private:
-  const bool _value;
-  const LHS _lhs;
-  const RHS _rhs;
-};
-
-template <typename LHS, typename RHS, typename Compare = comparators::equal_to>
-auto equals(const LHS &lhs, const RHS &rhs,
-            const Compare &compare = comparators::equal_to{}) {
-  return comparator(lhs, rhs, compare);
-}
-
-template <typename LHS, typename RHS,
-          typename Compare = comparators::not_equal_to>
-auto not_equals(const LHS &lhs, const RHS &rhs,
-                const Compare &compare = comparators::not_equal_to{}) {
-  return comparator(lhs, rhs, compare);
-}
-
-template <typename LHS, typename RHS,
-          typename Compare = comparators::greater_than>
-auto greater(const LHS &lhs, const RHS &rhs,
-             const Compare &compare = comparators::greater_than{}) {
-  return comparator(lhs, rhs, compare);
-}
-
-template <typename LHS, typename RHS,
-          typename Compare = comparators::greater_equal_to>
-auto greater_eq(const LHS &lhs, const RHS &rhs,
-                const Compare &compare = comparators::greater_equal_to{}) {
-  return comparator(lhs, rhs, compare);
-}
-
-template <typename LHS, typename RHS,
-          typename Compare = comparators::lesser_than>
-auto lesser(const LHS &lhs, const RHS &rhs,
-            const Compare &compare = comparators::lesser_than{}) {
-  return comparator(lhs, rhs, compare);
-}
-
-template <typename LHS, typename RHS,
-          typename Compare = comparators::lesser_equal_to>
-auto lesser_eq(const LHS &lhs, const RHS &rhs,
-               const Compare &compare = comparators::lesser_equal_to{}) {
-  return comparator(lhs, rhs, compare);
-}
-
-template <std::derived_from<expression> LHS, std::derived_from<expression> RHS>
-auto operator&&(const LHS &lhs, const RHS &rhs) {
-  return comparator(lhs, rhs, comparators::and_{});
-}
-
-template <std::derived_from<expression> LHS, std::derived_from<expression> RHS>
-auto operator||(const LHS &lhs, const RHS &rhs) {
-  return comparator(lhs, rhs, comparators::or_{});
-}
-
-template <typename Expr, typename Compare> requires
-(std::is_copy_constructible_v<Expr> && concepts::UniOperable<Expr, Compare>) 
-struct not_ : public expression {
-
-  not_(const Expr &ex,  Compare &compare)
-      : _expr(ex),  _value(compare(ex)) {}
-
-  constexpr operator bool() const { return _value; }
-  Expr _expr;
-  bool _value;
-};
-
-template <std::derived_from<expression> Expr>
-auto operator!(const Expr &expr) {
-  return not_(expr,  comparators::not_{});
-}
-
-template <typename Expr>
-auto not_of(const Expr &expr) {
-  return not_(expr,  comparators::not_{});
-}
-
 } // namespace assertions
 
 namespace details {
