@@ -382,100 +382,85 @@ template <class T> concept Printable = requires(std::stringstream &os, T a) {
   ->std::same_as<std::stringstream &>;
 };
 
-template <typename Logger> class test_event_handler {
-public:
-  test_event_handler() = default;
-
-  test_event_handler(const Logger &logger) : logger(logger) {}
-
-  test_event_handler(Logger &&logger) : logger(std::move(logger)) {}
-
-  ~test_event_handler() { logger.on(events::summary{}); }
-
-  void on(events::test_suite suite) {
-    test_suites.push_back(std::move(suite.tests));
+class printer {
+  auto &operator<<(std::string_view str) {
+    out << str;
+    return *this;
   }
 
-  void on(events::test &test) {
-    if (test.test_tag.contains("disable")) {
-      on(events::test_skipped{test.name, test.where});
+  auto &operator<<(char c) {
+    out << c;
+    return *this;
+  }
+
+  template <std::ranges::range Container> auto &operator<<(Container &&c) {
+    *this << '{';
+    bool first = true;
+    for (const auto &ele : c) {
+      out << (first ? "" : ", ") << ele;
     }
-    if (test.test_tag.satisfies(tags)) {
-      on(events::test_begin{test.name, test.where});
-      on(events::test_run{test.name, test.where});
-      try {
-        test();
-      } catch (const std::exception &ex) {
-        on(events::exception{ex});
-      } catch (...) {
-        on(events::exception("Unknown Exception"));
-      }
-      on(events::test_end{test.name, test.where});
-    } else {
-      on(events::test_skipped{test.name, test.where});
-    }
+    *this << '}';
+    return *this;
   }
 
-  void on(events::exception ex) {
-    current_test_failed = true;
-    logger.on(ex);
+  template <Printable Element> auto &operator<<(Element &&ele) { out << ele; }
+
+  template <typename Element> auto &operator<<(Element &&ele) {
+    out << "[UNKNOWN]";
   }
 
-  void on(events::test_skipped test) { logger.on(test); }
-
-  void on(events::test_begin test) { logger.on(test); }
-
-  void on(events::test_end test) { logger.on(test); }
-
-  void on(events::test_run test) { logger.on(test); }
-
-  template <typename Msg> void on(events::log<Msg> msg) { logger.on(msg); }
-
-  template <typename Expr> void on(events::assertion_added<Expr> assertion) {
-    logger.on(assertion);
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " == " << ele.rhs() << ')';
   }
 
-  template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
-    current_test_failed = true;
-    logger.on(assertion);
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::not_equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " != " << ele.rhs() << ')';
   }
 
-  template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
-    logger.on(assertion);
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::greater_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " > " << ele.rhs() << ')';
   }
 
-  template <typename Expr>
-  void on(events::assertion_exception<Expr> assertion) {
-    logger.on(assertion);
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::greater_equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " >= " << ele.rhs() << ')';
   }
 
-  void run(std::vector<std::string_view> tags) {
-    this->tags = tags;
-    for (auto &suite : test_suites) {
-      suite();
-    }
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::lesser_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " < " << ele.rhs() << ')';
   }
 
-  void run(std::vector<std::string_view> &&tags) {
-    this->tags = std::move(tags);
-    for (auto &suite : test_suites) {
-      suite();
-    }
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::lesser_equals_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " <= " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::and_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " && " << ele.rhs() << ')';
+  }
+
+  template <typename LHS, typename RHS, typename Compare>
+  auto &operator<<(expressions::or_<LHS, RHS, Compare> ele) {
+    *this << '(' << ele.lhs() << " || " << ele.rhs() << ')';
+  }
+
+  template <typename Expr, typename Compare>
+  auto &operator<<(expressions::not_<Expr, Compare> ele) {
+    *this << "(!" << ele.value() << ')';
   }
 
 private:
-  Logger logger;
-  std::vector<std::function<void()>> test_suites;
-  details::tag tags;
-  bool current_test_failed{false};
+  std::stringstream out{};
 };
 
-template <typename Printer> class logger {
-public:
-  logger() = default;
-  logger(const Printer &p) : printer(p) {}
-  logger(Printer &&p) : printer(std::move(p)) {}
 
+template <typename Printer = printer> class logger {
+public:
   template <typename Expr> void on(events::assertion_added<Expr>) {
     total_assertions++;
   }
@@ -618,81 +603,89 @@ private:
   std::vector<events::test_begin> test_stack;
 };
 
-class printer {
-  auto &operator<<(std::string_view str) {
-    out << str;
-    return *this;
+template <typename Logger = logger<printer>> class test_event_handler {
+public:
+  ~test_event_handler() { logger.on(events::summary{}); }
+
+  void on(events::test_suite suite) {
+    test_suites.push_back(std::move(suite.tests));
   }
 
-  auto &operator<<(char c) {
-    out << c;
-    return *this;
-  }
-
-  template <std::ranges::range Container> auto &operator<<(Container &&c) {
-    *this << '{';
-    bool first = true;
-    for (const auto &ele : c) {
-      out << (first ? "" : ", ") << ele;
+  void on(events::test &test) {
+    if (test.test_tag.contains("disable")) {
+      on(events::test_skipped{test.name, test.where});
     }
-    *this << '}';
-    return *this;
+    if (test.test_tag.satisfies(tags)) {
+      on(events::test_begin{test.name, test.where});
+      on(events::test_run{test.name, test.where});
+      try {
+        test();
+      } catch (const std::exception &ex) {
+        on(events::exception{ex});
+      } catch (...) {
+        on(events::exception("Unknown Exception"));
+      }
+      on(events::test_end{test.name, test.where});
+    } else {
+      on(events::test_skipped{test.name, test.where});
+    }
   }
 
-  template <Printable Element> auto &operator<<(Element &&ele) { out << ele; }
-
-  template <typename Element> auto &operator<<(Element &&ele) {
-    out << "[UNKNOWN]";
+  void on(events::exception ex) {
+    current_test_failed = true;
+    logger.on(ex);
   }
 
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " == " << ele.rhs() << ')';
+  void on(events::test_skipped test) { logger.on(test); }
+
+  void on(events::test_begin test) { logger.on(test); }
+
+  void on(events::test_end test) { logger.on(test); }
+
+  void on(events::test_run test) { logger.on(test); }
+
+  template <typename Msg> void on(events::log<Msg> msg) { logger.on(msg); }
+
+  template <typename Expr> void on(events::assertion_added<Expr> assertion) {
+    logger.on(assertion);
   }
 
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::not_equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " != " << ele.rhs() << ')';
+  template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
+    current_test_failed = true;
+    logger.on(assertion);
   }
 
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::greater_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " > " << ele.rhs() << ')';
+  template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
+    logger.on(assertion);
   }
 
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::greater_equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " >= " << ele.rhs() << ')';
+  template <typename Expr>
+  void on(events::assertion_exception<Expr> assertion) {
+    logger.on(assertion);
   }
 
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::lesser_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " < " << ele.rhs() << ')';
+  void run(std::vector<std::string_view> tags) {
+    this->tags = tags;
+    for (auto &suite : test_suites) {
+      suite();
+    }
   }
 
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::lesser_equals_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " <= " << ele.rhs() << ')';
-  }
-
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::and_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " && " << ele.rhs() << ')';
-  }
-
-  template <typename LHS, typename RHS, typename Compare>
-  auto &operator<<(expressions::or_<LHS, RHS, Compare> ele) {
-    *this << '(' << ele.lhs() << " || " << ele.rhs() << ')';
-  }
-
-  template <typename Expr, typename Compare>
-  auto &operator<<(expressions::not_<Expr, Compare> ele) {
-    *this << "(!" << ele.value() << ')';
+  void run(std::vector<std::string_view> &&tags) {
+    this->tags = std::move(tags);
+    for (auto &suite : test_suites) {
+      suite();
+    }
   }
 
 private:
-  std::stringstream out{};
+  Logger logger;
+  std::vector<std::function<void()>> test_suites;
+  details::tag tags;
+  bool current_test_failed{false};
 };
+
+
 
 }; // namespace handlers
 
