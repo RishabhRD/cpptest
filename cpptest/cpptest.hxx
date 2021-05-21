@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <typeinfo>
 
 namespace cpptest {
 
@@ -74,7 +75,6 @@ template <typename T> concept NotComparable = requires(T t) {
   { !bool(t) }
   ->std::same_as<bool>;
 };
-
 
 } // namespace concepts
 
@@ -409,6 +409,68 @@ template <std::derived_from<expression> Expr> auto operator!(const Expr &expr) {
 template <typename Expr> auto not_of(const Expr &expr) {
   return not_<Expr, comparators::not_>(expr, comparators::not_{});
 }
+
+template <std::invocable Func, typename Exception>
+struct throws_ : public expression {
+  throws_(const Func &func) : _value() {
+    try {
+      func();
+      _value = false;
+    } catch (const Exception &ex) {
+      _value = true;
+    } catch (...) {
+      _value = false;
+    }
+  }
+
+  constexpr operator bool() const { return _value; }
+
+  bool _value{};
+};
+
+template <std::invocable Func> struct throws_<Func, void> : public expression {
+  throws_(const Func &func) : _value() {
+    try {
+      func();
+      _value = false;
+    } catch (...) {
+      _value = false;
+    }
+  }
+
+  constexpr operator bool() const { return _value; }
+
+  bool _value;
+};
+
+template <typename Exception, std::invocable Func>
+auto throws(const Func &func) {
+  return throws_<Func, Exception>(func);
+}
+
+template <std::invocable Func> auto throws(const Func &func) {
+  return throws_<Func, void>(func);
+}
+
+template <std::invocable Func> struct no_throws_ : public expression {
+  no_throws_(const Func &func) : _value() {
+    try {
+      func();
+      _value = true;
+    } catch (...) {
+      _value = false;
+    }
+  }
+
+  constexpr operator bool() const { return _value; }
+
+  bool _value;
+};
+
+template <std::invocable Func> auto no_throws(const Func &func) {
+  return no_throws_<Func>(func);
+}
+
 } // namespace expressions
 
 namespace handlers {
@@ -418,6 +480,7 @@ template <class T> concept Printable = requires(std::stringstream &os, T a) {
 };
 
 class printer {
+
 public:
   auto &operator<<(std::string_view str) {
     out << str;
@@ -432,6 +495,13 @@ public:
   template <Printable Element> auto &operator<<(Element &&ele) {
     out << ele;
     return *this;
+  }
+
+  auto &operator<<(bool b) {
+    if (b)
+      return *this << "true";
+    else
+      return *this << "false";
   }
 
   template <typename Element> auto &operator<<(Element &&ele) {
@@ -484,16 +554,19 @@ public:
     return *this << "(!" << ele.value() << ')';
   }
 
-  auto &operator<<(bool b) {
-    if (b)
-      return *this << "true";
-    else
-      return *this << "false";
+  template <std::invocable Func, typename Exception>
+  auto &operator<<(expressions::throws_<Func, Exception> ele) {
+    return *this << "(throws(" << typeid(Exception).name() << ")";
   }
 
-  auto &operator<<(const std::string &str) {
-    out << str;
-    return *this;
+  template <std::invocable Func>
+  auto &operator<<(expressions::throws_<Func, void> ele) {
+    return *this << "(throws (void)";
+  }
+
+  template <std::invocable Func>
+  auto &operator<<(expressions::no_throws_<Func> ele) {
+    return *this << "(no_throws)";
   }
 
   auto str() const { return out.str(); }
@@ -867,6 +940,7 @@ inline auto operator""_test(const char *name, decltype(sizeof("")) size) {
 }; // namespace operators
 
 inline details::tag tag(const char *name) { return details::tag{{name}}; }
+inline details::tag disable = {.tags = {"disable"}};
 
 using details::subtest;
 using details::test;
@@ -883,6 +957,8 @@ using expressions::greater;
 using expressions::greater_eq;
 using expressions::lesser;
 using expressions::lesser_eq;
+using expressions::no_throws;
 using expressions::not_equals;
+using expressions::throws;
 
 } // namespace cpptest
