@@ -75,6 +75,7 @@ template <typename T> concept NotComparable = requires(T t) {
   ->std::same_as<bool>;
 };
 
+
 } // namespace concepts
 
 namespace details {
@@ -428,17 +429,6 @@ public:
     return *this;
   }
 
-  /* template <std::ranges::range Container> auto &operator<<(Container &&c) {
-   */
-  /*   *this << '{'; */
-  /*   bool first = true; */
-  /*   for (const auto &ele : c) { */
-  /*     out << (first ? "" : ", ") << ele; */
-  /*   } */
-  /*   *this << '}'; */
-  /*   return *this; */
-  /* } */
-
   template <Printable Element> auto &operator<<(Element &&ele) {
     out << ele;
     return *this;
@@ -494,9 +484,16 @@ public:
     return *this << "(!" << ele.value() << ')';
   }
 
-  auto& operator<<(bool b){
-    if(b) return *this << "true";
-    else return *this << "false";
+  auto &operator<<(bool b) {
+    if (b)
+      return *this << "true";
+    else
+      return *this << "false";
+  }
+
+  auto &operator<<(const std::string &str) {
+    out << str;
+    return *this;
   }
 
   auto str() const { return out.str(); }
@@ -532,7 +529,7 @@ public:
       already_failed = true;
       test_failed++;
     }
-    if(!dash_printed){
+    if (!dash_printed) {
       print_dash();
     }
     printer << basename(test_stack.front().where.file_name()) << ':'
@@ -558,11 +555,11 @@ public:
     already_failed = false;
   }
 
-  void on(events::test_end test) { 
-    if(!already_failed){
+  void on(events::test_end test) {
+    if (!already_failed) {
       test_passed++;
     }
-    test_stack.pop_back(); 
+    test_stack.pop_back();
   }
 
   void on(events::test_skipped test) { test_skipped++; }
