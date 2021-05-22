@@ -28,7 +28,7 @@ This tutorial assumes you have cpptest.hxx file.
   - [lesser\_eq](#lesser_eq)
   - [throws](#throws)
   - [no\_throws](#no_throws)
-  - [AND, OR and NOT operators](#and,-or-and-not-operators)
+  - [AND, OR and NOT operators](#and-or-and-not-operators)
 - [Integrations with build systems](#integrations-with-build-systems)
   - [build2](#build2)
 
