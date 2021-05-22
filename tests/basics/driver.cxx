@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 #include <cpptest/cpptest.hxx>
-#include <cpptest/version.hxx>
 
 using namespace cpptest;
 
@@ -83,13 +82,6 @@ test_suite s3 = [] {
       subtest("sub 4") = [] { check(equals(1, 7)); };
     };
     check(equals(1, 8));
-  };
-};
-
-test_suite s4 = []{
-  tag("nightly") +
-  "tagged_test"_test = []{
-    check(equals(1, 2));
   };
 };
 
