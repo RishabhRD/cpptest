@@ -125,24 +125,6 @@ We don't want array declared to be changed in both subtests so we capture
 v by value in lambda. This construct also enables many lambda tricks into
 tests.
 
-## Require assertion
-
-A require assertion looks like this:
-
-```cpp
-"sometest"_test = []{
-  subtest("sub") = []{
-    require(equals(1, 2));
-    check(equals(1, 3));
-  }
-  check(equals(1, 4));
-};
-```
-
-If require assertion fails, then the current test or subtest and all its
-subtests are aborted. That means the check assertion inside subtest would
-not be executed. However, check outside the subtest would be executed.
-
 ## Nesting of subtests
 
 The power of subtest appears when we are actually able to nest them seamlessly
@@ -163,6 +145,23 @@ The power of subtest appears when we are actually able to nest them seamlessly
   check(equals(1, 6));
 };
 ```
+## Require assertion
+
+A require assertion looks like this:
+
+```cpp
+"sometest"_test = []{
+  subtest("sub") = []{
+    require(equals(1, 2));
+    check(equals(1, 3));
+  }
+  check(equals(1, 4));
+};
+```
+
+If require assertion fails, then the current test or subtest and all its
+subtests are aborted. That means the check assertion inside subtest would
+not be executed. However, check outside the subtest would be executed.
 
 ## Other syntax
 
