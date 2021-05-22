@@ -1,4 +1,5 @@
 #pragma once
+#include "source_location.hxx"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -940,7 +941,6 @@ struct test_suite {
   }
 };
 
-constexpr auto subtest = [](const auto name) { return test(name); };
 
 } // namespace details
 
@@ -977,7 +977,14 @@ inline auto operator""_test(const char *name, decltype(sizeof("")) size) {
 inline details::tag tag(const char *name) { return details::tag{{name}}; }
 inline details::tag disable = {.tags = {"disable"}};
 
-using details::subtest;
+constexpr auto subtest = [](const auto name) { return test(name); };
+constexpr auto describe = [](const auto name) { return test(name); };
+constexpr auto it = [](const auto name) { return test(name); };
+constexpr auto feature = [](const auto name) { return test(name); };
+constexpr auto scenario = [](const auto name) { return test(name); };
+constexpr auto given = [](const auto name) { return test(name); };
+constexpr auto when = [](const auto name) { return test(name); };
+constexpr auto then = [](const auto name) { return test(name); };
 using details::test;
 using details::test_suite;
 using operators::operator""_test;
