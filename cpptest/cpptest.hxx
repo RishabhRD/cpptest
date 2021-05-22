@@ -853,13 +853,22 @@ auto runner = handlers::test_event_handler<>{};
 inline void run() { runner<default_config>.run(); }
 
 inline void run(int argc, char **argv) {
-  // TODO: generate tags from arguments
   details::tag tags;
+  if(argc >= 2){
+    for(int i = 1; i < argc; i++){
+      tags.add(argv[i]);
+    }
+  }
   runner<default_config>.run(std::move(tags));
 }
 
 inline void run(const std::vector<std::string_view> &tags) {
   details::tag t{tags};
+  runner<default_config>.run(std::move(t));
+}
+
+inline void run(const std::initializer_list<std::string_view>& list){
+  details::tag t {std::vector<std::string_view>(list)};
   runner<default_config>.run(std::move(t));
 }
 

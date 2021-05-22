@@ -86,4 +86,11 @@ test_suite s3 = [] {
   };
 };
 
-int main(int argc, char **argv) { cpptest::run(); }
+test_suite s4 = []{
+  tag("nightly") +
+  "tagged_test"_test = []{
+    check(equals(1, 2));
+  };
+};
+
+int main(int argc, char **argv) { cpptest::run(argc, argv); }

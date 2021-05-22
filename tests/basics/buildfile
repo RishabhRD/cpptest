@@ -1,3 +1,6 @@
 import libs = cpptest%lib{cpptest}
 
+tags =
+
 exe{driver}: {hxx ixx txx cxx}{**} $libs testscript{**}
+exe{driver}: test.arguments = $tags
