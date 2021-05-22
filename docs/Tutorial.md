@@ -18,7 +18,7 @@ This tutorial assumes you have cpptest.hxx file.
 - [Parameterized tests](#parameterized-tests)
 - [Scale it](#scale-it)
 - [Tagging tests](#tagging-tests)
-- [Disabling tests](#disabling-tests)
+  - [Disabling tests](#disabling-tests)
 - [Expressions](#expressions)
   - [equals](#equals)
   - [not\_equals](#not_equals)
