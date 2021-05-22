@@ -170,10 +170,12 @@ template <typename Expr> struct assertion_passed {
   std::source_location where;
 };
 
-template <typename Expr> struct fatal_assertion{
+template <typename Expr> struct fatal_assertion {
   Expr expr;
   std::source_location where;
 };
+
+struct assertion_exception {};
 
 template <typename Msg> struct log { Msg msg; };
 
@@ -594,9 +596,6 @@ private:
 template <typename Printer = printer> class logger {
 public:
   template <typename Expr> void on(events::assertion_failed<Expr> assertion) {
-    if(!_assertion_should_continue){
-      return;
-    }
     assertion_failed++;
     if (!already_failed) {
       already_failed = true;
@@ -620,52 +619,46 @@ public:
   }
 
   template <typename Expr> void on(events::fatal_assertion<Expr> assertion) {
-    if(!_assertion_should_continue){
-      return;
+    assertion_failed++;
+    if (!already_failed) {
+      already_failed = true;
+      test_failed++;
     }
-    on(events::assertion_failed{assertion.expr, assertion.where});
-    _assertion_should_continue = false;
-    fatal_assertion_level = test_level;
+    if (!dash_printed) {
+      print_dash();
+    }
+    printer << basename(test_stack.front().where.file_name()) << ':'
+            << test_stack.front().where.line() << ':' << '\n'
+            << printer.colors.warning
+            << "TEST CASE:  " << printer.colors.normal;
+    print_test_case_names();
+    printer << basename(assertion.where.file_name()) << ':'
+            << assertion.where.line() << ':';
+    printer << printer.colors.failed
+            << " REQUIREMENT FAILED: " << printer.colors.normal;
+    printer << "[ ";
+    printer << assertion.expr;
+    printer << " ] is not correct\n";
+    print_dash();
   }
 
   template <typename Expr> void on(events::assertion_passed<Expr> assertion) {
-    if(!_assertion_should_continue){
-      return;
-    }
     assertion_passed++;
   }
 
   void on(events::test_begin test) {
-    test_level++;
-    if(!_assertion_should_continue){
-      return;
-    }
     test_stack.push_back(test);
     already_failed = false;
   }
 
   void on(events::test_end test) {
-    if(!_assertion_should_continue){
-      if(test_level == fatal_assertion_level){
-        _assertion_should_continue = true;
-        test_level--;
-      }else{
-        test_level--;
-        return;
-      }
-    }
     if (!already_failed) {
       test_passed++;
     }
     test_stack.pop_back();
   }
 
-  void on(events::test_skipped test) {
-    if(!_assertion_should_continue){
-      return;
-    }
-    test_skipped++; 
-  }
+  void on(events::test_skipped test) { test_skipped++; }
 
   void on(events::test_run) {}
 
@@ -743,9 +736,6 @@ private:
   Printer printer;
   bool already_failed = false;
   bool dash_printed = false;
-  bool _assertion_should_continue = true;
-  std::size_t fatal_assertion_level{};
-  std::size_t test_level{};
   std::size_t assertion_failed{};
   std::size_t assertion_passed{};
   std::size_t total_assertions{};
@@ -775,6 +765,7 @@ public:
           test();
         } catch (const std::exception &ex) {
           on(events::exception{ex});
+        } catch (const events::assertion_exception &assertion) {
         } catch (...) {
           on(events::exception("Unknown Exception"));
         }
@@ -785,9 +776,7 @@ public:
     }
   }
 
-  void on(events::exception ex) {
-    logger.on(ex);
-  }
+  void on(events::exception ex) { logger.on(ex); }
 
   void on(events::test_skipped test) { logger.on(test); }
 
@@ -809,6 +798,7 @@ public:
 
   template <typename Expr> void on(events::fatal_assertion<Expr> assertion) {
     logger.on(assertion);
+    throw events::assertion_exception{};
   }
 
   void run(const details::tag &tags) {
