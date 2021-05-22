@@ -710,7 +710,23 @@ public:
 
   template <typename Msg> void on(events::log<Msg> msg) { printer << msg.msg; }
 
-  void on(events::exception ex) {}
+  void on(events::exception ex) {
+    if (!already_failed) {
+      already_failed = true;
+      test_failed++;
+    }
+    if (!dash_printed) {
+      print_dash();
+    }
+    printer << basename(test_stack.front().where.file_name()) << ':'
+            << test_stack.front().where.line() << ':' << '\n'
+            << printer.colors.warning
+            << "TEST CASE:  " << printer.colors.normal;
+    print_test_case_names();
+    printer << " FAILED WITH EXCEPTION MESSAGE: " << printer.colors.failed
+            << ex.msg << printer.colors.passed << "\n";
+    print_dash();
+  }
 
 private:
   inline void print_dash() {
