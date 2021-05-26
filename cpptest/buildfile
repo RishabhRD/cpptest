@@ -1,3 +1,4 @@
+cxx.std = experimental
 intf_libs = # Interface dependencies.
 impl_libs = # Implementation dependencies.
 #import xxxx_libs += libhello%lib{hello}

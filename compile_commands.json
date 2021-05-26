@@ -2,7 +2,7 @@
  {
   "directory": "/home/rishabh/git/cpptest",
   "arguments": [
-   "g++",
+   "clang++",
    "-I/home/rishabh/git/cpptest",
    "-I/home/rishabh/git/cpptest",
    "-DCPPTEST_SHARED",
@@ -15,5 +15,22 @@
    "/home/rishabh/git/cpptest/tests/basics/driver.cxx"
   ],
   "file": "/home/rishabh/git/cpptest/tests/basics/driver.cxx"
+ },
+ {
+  "directory": "/home/rishabh/git/cpptest",
+  "arguments": [
+   "clang++",
+   "-I/home/rishabh/git/cpptest",
+   "-I/home/rishabh/git/cpptest",
+   "-DCPPTEST_SHARED",
+   "-std=c++2a",
+   "-o",
+   "tests/basics/multifile.o",
+   "-c",
+   "-x",
+   "c++",
+   "/home/rishabh/git/cpptest/tests/basics/multifile.cxx"
+  ],
+  "file": "/home/rishabh/git/cpptest/tests/basics/multifile.cxx"
  }
 ]

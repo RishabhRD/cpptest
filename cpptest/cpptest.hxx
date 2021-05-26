@@ -11,6 +11,41 @@
 #include <tuple>
 #include <typeinfo>
 
+#if __cplusplus <= 201703L || !__has_builtin(__builtin_source_location)
+namespace std {
+struct source_location {
+  char const *const _file;
+  int const _line;
+
+  constexpr source_location(char const *file, int const line)
+      : _file{file}, _line{line} {}
+
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_FILE) && __has_builtin(__builtin_FUNCTION) &&      \
+    __has_builtin(__builtin_LINE)
+  static inline source_location current(char const *file = __builtin_FILE(),
+                                        int const line = __builtin_LINE()) {
+    return {file, line};
+  }
+#else
+  static inline source_location current(char const *file = "unsupported",
+                                        int const line = 0) {
+    return {file, line};
+  }
+#endif
+#else
+  static inline source_location current(char const *file = "unsupported",
+                                        int const line = 0) {
+    return {file, line};
+  }
+#endif
+  auto file_name() const { return _file; }
+
+  auto line() const { return _line; }
+};
+} // namespace std
+#endif
+
 namespace cpptest {
 
 namespace concepts {
@@ -854,8 +889,8 @@ inline void run() { runner<default_config>.run(); }
 
 inline void run(int argc, char **argv) {
   details::tag tags;
-  if(argc >= 2){
-    for(int i = 1; i < argc; i++){
+  if (argc >= 2) {
+    for (int i = 1; i < argc; i++) {
       tags.add(argv[i]);
     }
   }
@@ -867,8 +902,8 @@ inline void run(const std::vector<std::string_view> &tags) {
   runner<default_config>.run(std::move(t));
 }
 
-inline void run(const std::initializer_list<std::string_view>& list){
-  details::tag t {std::vector<std::string_view>(list)};
+inline void run(const std::initializer_list<std::string_view> &list) {
+  details::tag t{std::vector<std::string_view>(list)};
   runner<default_config>.run(std::move(t));
 }
 
@@ -939,7 +974,6 @@ struct test_suite {
     on(events::test_suite{std::forward<Func>(func)});
   }
 };
-
 
 } // namespace details
 
