@@ -1,15 +1,8 @@
 #pragma once
-#include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <iostream>
-#include <limits>
 #include <source_location>
-#include <sstream>
-#include <string>
-#include <tuple>
-#include <typeinfo>
 
 #if __cplusplus <= 201703L || !__has_builtin(__builtin_source_location)
 namespace std {
